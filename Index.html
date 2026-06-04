@@ -165,7 +165,7 @@ tr.row-pendente td{background:#fffdf5}
   <div class="logo"><div class="logo-icon">CD</div><span>Camaleão Digital</span></div>
   <div style="display:flex;align-items:center;gap:10px">
     <span class="sync-status sync-loading" id="sync-status">⟳</span>
-    <button class="hamburger" id="hamburger-btn" onclick="toggleMenu()">☰</button>
+    <button class="hamburger" id="hamburger-btn">☰</button>
   </div>
 </div>
 <div class="mobile-nav" id="mobile-nav">
@@ -539,6 +539,10 @@ function buildMTabs(containerId, selM, selY, groupKey, onSelect){
 }
 
 // ═══ NAV ═════════════════════════════════════════
+document.getElementById('hamburger-btn').addEventListener('click', ()=>{
+  document.getElementById('mobile-nav').classList.toggle('open');
+});
+
 document.getElementById('main-nav').addEventListener('click', e=>{
   const nb = e.target.closest('.nb');
   if(!nb)return;
@@ -975,10 +979,6 @@ function renderIA(){
   });
 }
 
-function toggleMenu(){
-  const nav = document.getElementById('mobile-nav');
-  nav.classList.toggle('open');
-}
 // Close mobile menu when nav item clicked (handled in main nav listener above)
 </script>
 </body>
