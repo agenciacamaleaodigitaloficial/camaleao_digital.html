@@ -120,22 +120,63 @@ tr.row-pendente td{background:#fffdf5}
 .pcc-row{display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:3px}
 .pcc-total{font-size:22px;font-weight:700;margin-top:.4rem}
 .c-ok{color:#1D9E75}.c-warn{color:#854f0b}.c-bad{color:#a32d2d}
+
+/* ── MOBILE NAV ─────────────────────────── */
+.hamburger{background:none;border:none;font-size:24px;cursor:pointer;color:#1a1a1a;padding:4px 8px;border-radius:6px}
+.hamburger:hover{background:#f0f0eb}
+.mobile-nav{display:none;background:#fff;border-bottom:1px solid #e5e5e0;padding:.5rem 1rem;flex-wrap:wrap;gap:4px}
+.mobile-nav.open{display:flex}
+.mobile-nav #main-nav{display:flex;flex-wrap:wrap;gap:4px;width:100%}
+@media(min-width:768px){
+  .hamburger{display:none}
+  .mobile-nav{display:flex!important;border-bottom:none;padding:0;background:transparent}
+  .mobile-nav #main-nav{flex-wrap:nowrap}
+  .topbar{flex-wrap:nowrap}
+  .sync-status{white-space:nowrap}
+}
+/* ── MOBILE LAYOUT ──────────────────────── */
+@media(max-width:767px){
+  .page{padding:1rem .75rem}
+  h2{font-size:17px}
+  .g2,.g3,.g4{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+  .fin-banner{padding:1rem}
+  .fbrow{gap:8px}
+  .fbi-v{font-size:15px}
+  .card{padding:.875rem 1rem}
+  .kanban-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{font-size:12px}
+  th,td{padding:7px 8px}
+  .tcard{flex-direction:column;align-items:flex-start;gap:6px}
+  .tcard > div:last-child{align-self:flex-end}
+  .btn{font-size:12px;padding:6px 10px}
+  .btn-sm{font-size:11px;padding:4px 8px}
+  .mbox{padding:1.25rem 1rem}
+  .irow{gap:8px}
+  .wnav span{min-width:100px;font-size:12px}
+  .mtabs{gap:3px}
+  .mtab{padding:4px 10px;font-size:11px}
+  .pcc-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+  .sync-status{font-size:10px;padding:2px 6px}
+}
 </style>
 </head>
 <body>
 <div class="topbar">
   <div class="logo"><div class="logo-icon">CD</div><span>Camaleão Digital</span></div>
-  <div style="display:flex;align-items:center;gap:12px">
-    <span class="sync-status sync-loading" id="sync-status">⟳ Conectando...</span>
-    <div class="nav" id="main-nav">
-      <button class="nb active" data-page="painel">⬛ Painel</button>
-      <button class="nb" data-page="agenda">📅 Agenda</button>
-      <button class="nb" data-page="kanban">⊞ Kanban</button>
-      <button class="nb" data-page="videos">▶ Vídeos</button>
-      <button class="nb" data-page="financeiro">$ Financeiro</button>
-      <button class="nb" data-page="equipe">☺ Equipe</button>
-      <button class="nb" data-page="ia">⚒ Gastos IA</button>
-    </div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <span class="sync-status sync-loading" id="sync-status">⟳</span>
+    <button class="hamburger" id="hamburger-btn" onclick="toggleMenu()">☰</button>
+  </div>
+</div>
+<div class="mobile-nav" id="mobile-nav">
+  <div id="main-nav">
+    <button class="nb active" data-page="painel">⬛ Painel</button>
+    <button class="nb" data-page="agenda">📅 Agenda</button>
+    <button class="nb" data-page="kanban">⊞ Kanban</button>
+    <button class="nb" data-page="videos">▶ Vídeos</button>
+    <button class="nb" data-page="financeiro">$ Financeiro</button>
+    <button class="nb" data-page="equipe">☺ Equipe</button>
+    <button class="nb" data-page="ia">⚒ Gastos IA</button>
   </div>
 </div>
 
@@ -506,6 +547,8 @@ document.getElementById('main-nav').addEventListener('click', e=>{
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
   document.getElementById('page-'+page).classList.add('active');
   nb.classList.add('active');
+  // Close mobile menu
+  document.getElementById('mobile-nav').classList.remove('open');
   ({painel:renderPainel,agenda:renderAgenda,kanban:renderKanban,videos:renderVid,financeiro:renderFin,equipe:renderEquipe,ia:renderIA})[page]?.();
 });
 
@@ -931,6 +974,12 @@ function renderIA(){
     card.appendChild(info);card.appendChild(acts);list.appendChild(card);
   });
 }
+
+function toggleMenu(){
+  const nav = document.getElementById('mobile-nav');
+  nav.classList.toggle('open');
+}
+// Close mobile menu when nav item clicked (handled in main nav listener above)
 </script>
 </body>
 </html>
