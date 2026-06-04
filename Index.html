@@ -658,7 +658,7 @@ function renderPainel(){
     `<div class="metric"><div class="ml">No Instagram</div><div class="mv">${DB.posts.filter(p=>p.etapa===4&&p.data>=wd[0]&&p.data<=wd[6]).length}</div></div>`;
   document.getElementById('painel-etapas').innerHTML=ETAPAS.map((e,i)=>
     `<div style="background:${ETAPA_BG[i]};border-radius:8px;padding:.75rem;text-align:center"><div style="font-size:10px;color:${ETAPA_TX[i]};margin-bottom:3px">${e}</div><div style="font-size:22px;font-weight:700;color:${ETAPA_TX[i]}">${DB.posts.filter(p=>p.etapa===i&&p.data>=wd[0]&&p.data<=wd[6]).length}</div></div>`
-  ).join(''));
+  ).join('');
   const pcc=document.getElementById('painel-post-counter');
   pcc.innerHTML='';
   if(!DB.clientes.length){pcc.innerHTML='<div class="empty">Nenhum cliente</div>';}
