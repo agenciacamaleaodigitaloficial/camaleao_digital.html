@@ -332,7 +332,7 @@ tr.row-pendente td{background:#fffdf5}
 <!-- FIREBASE -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc, onSnapshot, enableNetwork } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCTARTs91a4H1INUYOrEPR8x8k0lyMLRjg",
@@ -346,6 +346,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const DOC = doc(db, "camaleao", "dados");
+
+// Ensure network is enabled
+enableNetwork(db).catch(e => console.log('Network enable:', e));
 
 const ETAPAS = ['Para fazer','Em produção','Enviado ao editor','Enviado p/ aprovação','No Instagram'];
 const ETAPA_BG = ['#f1efe8','#e6f1fb','#faeeda','#eeedfe','#e1f5ee'];
@@ -379,23 +382,42 @@ async function saveDB() {
 
 // Load from Firestore and listen for changes
 syncStatus('loading', '⟳ Conectando...');
-onSnapshot(DOC, (snap) => {
-  if(snap.exists()) {
-    const data = snap.data();
-    DB.posts    = data.posts    || [];
-    DB.videos   = data.videos   || [];
-    DB.clientes = data.clientes || [];
-    DB.freelas  = data.freelas  || [];
-    DB.ias      = data.ias      || [];
-    DB.payments = data.payments || {};
-    DB.meta     = data.meta     || {s:0,m:0};
+
+// Timeout: if Firebase doesn't connect in 8s, show error
+const connectTimeout = setTimeout(() => {
+  if(document.getElementById('sync-status').textContent.includes('Conectando')) {
+    syncStatus('err', '✕ Sem conexão');
+    renderAll();
   }
-  syncStatus('ok', '☁ Sincronizado');
+}, 8000);
+
+try {
+  onSnapshot(DOC, (snap) => {
+    clearTimeout(connectTimeout);
+    if(snap.exists()) {
+      const data = snap.data();
+      DB.posts    = data.posts    || [];
+      DB.videos   = data.videos   || [];
+      DB.clientes = data.clientes || [];
+      DB.freelas  = data.freelas  || [];
+      DB.ias      = data.ias      || [];
+      DB.payments = data.payments || {};
+      DB.meta     = data.meta     || {s:0,m:0};
+    }
+    syncStatus('ok', '☁ Sincronizado');
+    renderAll();
+  }, (err) => {
+    clearTimeout(connectTimeout);
+    console.error('Firestore error:', err);
+    syncStatus('err', '✕ Erro: ' + err.code);
+    renderAll();
+  });
+} catch(e) {
+  clearTimeout(connectTimeout);
+  console.error('Firebase init error:', e);
+  syncStatus('err', '✕ Erro Firebase');
   renderAll();
-}, (err) => {
-  syncStatus('err', '✕ Offline');
-  console.error(err);
-});
+}
 
 function renderAll() {
   renderPainel();
