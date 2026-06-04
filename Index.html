@@ -10,6 +10,10 @@ body{font-family:system-ui,sans-serif;background:#f5f5f0;color:#1a1a1a;min-heigh
 .topbar{background:#fff;border-bottom:1px solid #e5e5e0;padding:0 1rem;display:flex;align-items:center;justify-content:space-between;height:54px;position:sticky;top:0;z-index:100;flex-wrap:wrap;gap:4px}
 .logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
 .logo-icon{width:34px;height:34px;border-radius:8px;background:#1D9E75;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0}
+.sync-status{font-size:11px;padding:3px 10px;border-radius:99px;font-weight:600}
+.sync-ok{background:#eaf3de;color:#3b6d11}
+.sync-err{background:#fff0f0;color:#a32d2d}
+.sync-loading{background:#f0f0eb;color:#666}
 .nav{display:flex;gap:2px;flex-wrap:wrap}
 .nb{background:none;border:none;padding:6px 11px;border-radius:6px;font-size:12px;cursor:pointer;color:#666;white-space:nowrap;font-family:inherit}
 .nb:hover{background:#f0f0eb;color:#1a1a1a}
@@ -121,14 +125,17 @@ tr.row-pendente td{background:#fffdf5}
 <body>
 <div class="topbar">
   <div class="logo"><div class="logo-icon">CD</div><span>Camaleão Digital</span></div>
-  <div class="nav" id="main-nav">
-    <button class="nb active" data-page="painel">⬛ Painel</button>
-    <button class="nb" data-page="agenda">📅 Agenda</button>
-    <button class="nb" data-page="kanban">⊞ Kanban</button>
-    <button class="nb" data-page="videos">▶ Vídeos</button>
-    <button class="nb" data-page="financeiro">$ Financeiro</button>
-    <button class="nb" data-page="equipe">☺ Equipe</button>
-    <button class="nb" data-page="ia">⚒ Gastos IA</button>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="sync-status sync-loading" id="sync-status">⟳ Conectando...</span>
+    <div class="nav" id="main-nav">
+      <button class="nb active" data-page="painel">⬛ Painel</button>
+      <button class="nb" data-page="agenda">📅 Agenda</button>
+      <button class="nb" data-page="kanban">⊞ Kanban</button>
+      <button class="nb" data-page="videos">▶ Vídeos</button>
+      <button class="nb" data-page="financeiro">$ Financeiro</button>
+      <button class="nb" data-page="equipe">☺ Equipe</button>
+      <button class="nb" data-page="ia">⚒ Gastos IA</button>
+    </div>
   </div>
 </div>
 
@@ -176,7 +183,7 @@ tr.row-pendente td{background:#fffdf5}
     <h2 style="margin:0">Kanban</h2>
     <button class="btn btn-primary" id="btn-new-post-k">+ Novo post</button>
   </div>
-  <div style="font-size:12px;color:#888;margin-bottom:1rem">Arraste os cards entre as colunas &nbsp;|&nbsp; <span style="background:#eaf3de;padding:2px 8px;border-radius:4px;color:#3b6d11">Verde = No Instagram</span></div>
+  <div style="font-size:12px;color:#888;margin-bottom:1rem">Arraste os cards | <span style="background:#eaf3de;padding:2px 8px;border-radius:4px;color:#3b6d11">Verde = No Instagram</span></div>
   <div class="kanban-wrap"><div class="kanban" id="kanban-board"></div></div>
 </div>
 
@@ -322,59 +329,98 @@ tr.row-pendente td{background:#fffdf5}
   <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="mm-cancel">Cancelar</button><button class="btn btn-primary" id="mm-save">Salvar</button></div>
 </div></div>
 
-<script>
-// ═══════════════════════════════════════════════════
-// DATA & STATE
-// ═══════════════════════════════════════════════════
+<!-- FIREBASE -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCTARTs91a4H1INUYOrEPR8x8k0lyMLRjg",
+  authDomain: "gestao-camaleao.firebaseapp.com",
+  projectId: "gestao-camaleao",
+  storageBucket: "gestao-camaleao.firebasestorage.app",
+  messagingSenderId: "577430814422",
+  appId: "1:577430814422:web:955a0424395e4d935dd377"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const DOC = doc(db, "camaleao", "dados");
+
 const ETAPAS = ['Para fazer','Em produção','Enviado ao editor','Enviado p/ aprovação','No Instagram'];
 const ETAPA_BG = ['#f1efe8','#e6f1fb','#faeeda','#eeedfe','#e1f5ee'];
 const ETAPA_TX = ['#5f5e5a','#185fa5','#854f0b','#534ab7','#0f6e56'];
 const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-function ld(k,d){try{const v=localStorage.getItem(k);return v!=null?JSON.parse(v):d}catch(e){return d}}
-function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+let DB = { posts:[], videos:[], clientes:[], freelas:[], ias:[], payments:{}, meta:{s:0,m:0} };
+let saving = false;
 
-let DB = {
-  posts:    ld('cd7_posts',[]),
-  videos:   ld('cd7_videos',[]),
-  clientes: ld('cd7_clientes',[]),
-  freelas:  ld('cd7_freelas',[]),
-  ias:      ld('cd7_ias',[]),
-  payments: ld('cd7_payments',{}),
-  meta:     ld('cd7_meta',{s:0,m:0})
-};
+// Sync status
+function syncStatus(type, msg) {
+  const el = document.getElementById('sync-status');
+  el.textContent = msg;
+  el.className = 'sync-status sync-' + type;
+}
 
-function save(key){ sv('cd7_'+key, DB[key]); }
+// Save to Firestore
+async function saveDB() {
+  if(saving) return;
+  saving = true;
+  try {
+    await setDoc(DOC, DB);
+    syncStatus('ok', '☁ Salvo');
+  } catch(e) {
+    syncStatus('err', '✕ Erro ao salvar');
+    console.error(e);
+  }
+  saving = false;
+}
 
+// Load from Firestore and listen for changes
+syncStatus('loading', '⟳ Conectando...');
+onSnapshot(DOC, (snap) => {
+  if(snap.exists()) {
+    const data = snap.data();
+    DB.posts    = data.posts    || [];
+    DB.videos   = data.videos   || [];
+    DB.clientes = data.clientes || [];
+    DB.freelas  = data.freelas  || [];
+    DB.ias      = data.ias      || [];
+    DB.payments = data.payments || {};
+    DB.meta     = data.meta     || {s:0,m:0};
+  }
+  syncStatus('ok', '☁ Sincronizado');
+  renderAll();
+}, (err) => {
+  syncStatus('err', '✕ Offline');
+  console.error(err);
+});
+
+function renderAll() {
+  renderPainel();
+  renderKanban();
+  renderAgenda();
+  renderVidSemana();
+}
+
+// ═══ UTILS ═══════════════════════════════════════
 let state = {
   agOff:0, vidWOff:0, panWOff:0,
-  finM: new Date().getMonth(), finY: new Date().getFullYear(),
-  frM:  new Date().getMonth(), frY:  new Date().getFullYear(),
-  iaM:  new Date().getMonth(), iaY:  new Date().getFullYear(),
-  panM: new Date().getMonth(), panY: new Date().getFullYear(),
-  vidM: new Date().getMonth(), vidY: new Date().getFullYear(),
-  tabOff: {fin:0, fr:0, ia:0, pan:0, vid:0},
-  editClienteId: null,
-  editFreelaId: null,
-  editIAId: null,
-  currentVidTab: 'semana'
+  finM:new Date().getMonth(), finY:new Date().getFullYear(),
+  frM:new Date().getMonth(),  frY:new Date().getFullYear(),
+  iaM:new Date().getMonth(),  iaY:new Date().getFullYear(),
+  panM:new Date().getMonth(), panY:new Date().getFullYear(),
+  vidM:new Date().getMonth(), vidY:new Date().getFullYear(),
+  tabOff:{fin:0,fr:0,ia:0,pan:0,vid:0},
+  editClienteId:null, editFreelaId:null, editIAId:null,
+  currentVidTab:'semana'
 };
 
-// ═══════════════════════════════════════════════════
-// UTILS
-// ═══════════════════════════════════════════════════
-function uid(){ return Date.now() + '_' + Math.floor(Math.random()*99999); }
+function uid(){ return Date.now()+'_'+Math.floor(Math.random()*99999); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
-function getMon(off){
-  const d=new Date(), day=d.getDay(), r=new Date(d);
-  r.setDate(d.getDate() - (day===0?6:day-1) + (off*7));
-  return r;
-}
-function weekDates(off){
-  const m=getMon(off);
-  return Array.from({length:7},(_,i)=>{const d=new Date(m);d.setDate(m.getDate()+i);return d.toISOString().slice(0,10)});
-}
+function getMon(off){ const d=new Date(),day=d.getDay(),r=new Date(d); r.setDate(d.getDate()-(day===0?6:day-1)+(off*7)); return r; }
+function weekDates(off){ const m=getMon(off); return Array.from({length:7},(_,i)=>{const d=new Date(m);d.setDate(m.getDate()+i);return d.toISOString().slice(0,10)}); }
 function fmt(s){ if(!s)return ''; const[y,mo,d]=s.split('-'); return d+'/'+mo; }
 function fmtFull(s){ if(!s)return ''; const[y,mo,d]=s.split('-'); return d+'/'+mo+'/'+y.slice(2); }
 function fmtR(v){ return 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -385,78 +431,54 @@ function totF(){ return DB.freelas.reduce((a,f)=>a+Number(f.valor),0); }
 function totIA(){ return DB.ias.reduce((a,x)=>a+Number(x.valor),0); }
 function totGastos(){ return totF()+totIA(); }
 function totLiq(){ return totC()-totGastos(); }
+function el(tag,cls,text){ const e=document.createElement(tag); if(cls)e.className=cls; if(text!==undefined)e.textContent=text; return e; }
+function badge(cls,text){ return el('span','badge '+cls,text); }
 
-// ═══════════════════════════════════════════════════
-// DOM HELPERS
-// ═══════════════════════════════════════════════════
-function el(tag, cls, text){
-  const e = document.createElement(tag);
-  if(cls) e.className = cls;
-  if(text !== undefined) e.textContent = text;
-  return e;
-}
-function badge(type, text){
-  const b = el('span','badge '+type, text);
-  return b;
-}
-function btnIcon(cls, svgPath, onClick){
-  const b = el('button', 'btn btn-icon btn-sm '+cls);
-  b.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'+svgPath+'</svg>';
-  b.draggable = false;
-  b.addEventListener('click', function(e){
-    e.stopPropagation();
-    onClick(e);
-  });
-  return b;
-}
 function btnDel(onClick){
   const b = document.createElement('button');
   b.className = 'btn btn-icon btn-sm btn-del';
   b.title = 'Deletar';
   b.draggable = false;
   b.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>';
-  b.onclick = function(e){
-    e.preventDefault();
-    e.stopPropagation();
-    onClick();
-  };
+  b.onclick = function(e){ e.preventDefault(); e.stopPropagation(); onClick(); };
   return b;
 }
 function btnEdit(onClick){
-  return btnIcon('btn-edit',
-    '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
-    onClick);
+  const b = document.createElement('button');
+  b.className = 'btn btn-icon btn-sm btn-edit';
+  b.title = 'Editar';
+  b.draggable = false;
+  b.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+  b.onclick = function(e){ e.preventDefault(); e.stopPropagation(); onClick(); };
+  return b;
 }
-function clearEl(id){ document.getElementById(id).innerHTML=''; }
-function setHTML(id, html){ document.getElementById(id).innerHTML = html; }
-function getText(id){ return document.getElementById(id).value; }
-function setText(id, v){ document.getElementById(id).value = v; }
 
-// ═══════════════════════════════════════════════════
-// MODALS
-// ═══════════════════════════════════════════════════
-function openModal(id){ document.getElementById(id).classList.add('open'); }
-function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+// ═══ MONTH TABS ══════════════════════════════════
+function buildMTabs(containerId, selM, selY, groupKey, onSelect){
+  const off = state.tabOff[groupKey]||0;
+  const now = new Date();
+  const base = new Date(now.getFullYear(), now.getMonth()+off, 1);
+  const tabs = [];
+  for(let i=0;i<7;i++){ let mo=base.getMonth()+i,y=base.getFullYear(); while(mo>11){mo-=12;y++} tabs.push({m:mo,y}); }
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  const prev = el('button','mtab-nav','←');
+  prev.onclick = ()=>{ state.tabOff[groupKey]=(state.tabOff[groupKey]||0)-7; buildMTabs(containerId,selM,selY,groupKey,onSelect); };
+  container.appendChild(prev);
+  tabs.forEach(t=>{
+    const btn = el('button','mtab'+(t.m===selM&&t.y===selY?' active':''), MESES[t.m].slice(0,3)+' '+t.y);
+    btn.onclick = ()=>onSelect(t.m,t.y);
+    container.appendChild(btn);
+  });
+  const next = el('button','mtab-nav','→');
+  next.onclick = ()=>{ state.tabOff[groupKey]=(state.tabOff[groupKey]||0)+7; buildMTabs(containerId,selM,selY,groupKey,onSelect); };
+  container.appendChild(next);
+}
 
-document.querySelectorAll('.overlay').forEach(o=>{
-  o.addEventListener('click', e=>{ if(e.target===o) o.classList.remove('open'); });
-});
-
-// Modal close/cancel buttons
-['mp','mv','mc','mf','mia','mm'].forEach(pfx=>{
-  const closeBtn = document.getElementById(pfx+'-close');
-  const cancelBtn = document.getElementById(pfx+'-cancel');
-  const id = closeBtn.closest('.overlay').id;
-  if(closeBtn) closeBtn.addEventListener('click', ()=>closeModal(id));
-  if(cancelBtn) cancelBtn.addEventListener('click', ()=>closeModal(id));
-});
-
-// ═══════════════════════════════════════════════════
-// NAVIGATION
-// ═══════════════════════════════════════════════════
+// ═══ NAV ═════════════════════════════════════════
 document.getElementById('main-nav').addEventListener('click', e=>{
   const nb = e.target.closest('.nb');
-  if(!nb) return;
+  if(!nb)return;
   const page = nb.dataset.page;
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
@@ -465,637 +487,428 @@ document.getElementById('main-nav').addEventListener('click', e=>{
   ({painel:renderPainel,agenda:renderAgenda,kanban:renderKanban,videos:renderVid,financeiro:renderFin,equipe:renderEquipe,ia:renderIA})[page]?.();
 });
 
-// ═══════════════════════════════════════════════════
-// POST MODAL
-// ═══════════════════════════════════════════════════
+// ═══ MODALS ══════════════════════════════════════
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open')}));
+['mp','mv','mc','mf','mia','mm'].forEach(pfx=>{
+  const o = document.getElementById('modal-'+({mp:'post',mv:'video',mc:'cliente',mf:'freela',mia:'ia',mm:'meta'}[pfx]));
+  const id = o.id;
+  document.getElementById(pfx+'-close').onclick = ()=>closeModal(id);
+  document.getElementById(pfx+'-cancel').onclick = ()=>closeModal(id);
+});
+
+function popSel(){
+  ['p-cliente','v-cliente'].forEach(sid=>{
+    const s=document.getElementById(sid); if(!s)return;
+    const cur=s.value; s.innerHTML='<option value="">Selecione</option>';
+    DB.clientes.forEach(c=>{const o=document.createElement('option');o.value=c.nome;o.textContent=c.nome;s.appendChild(o)});
+    if(cur)s.value=cur;
+  });
+  const pd=document.getElementById('p-data'),vd=document.getElementById('v-data');
+  if(pd&&!pd.value)pd.value=todayStr();
+  if(vd&&!vd.value)vd.value=todayStr();
+}
+
+// ═══ POST MODAL ══════════════════════════════════
 function openPostModal(){
-  document.getElementById('mp-title').textContent = 'Novo post';
-  document.getElementById('p-obs').value = '';
-  // populate clientes
-  const sel = document.getElementById('p-cliente');
-  sel.innerHTML = '<option value="">Selecione</option>';
-  DB.clientes.forEach(c=>{ const o=document.createElement('option'); o.value=c.nome; o.textContent=c.nome; sel.appendChild(o); });
-  const pd = document.getElementById('p-data');
-  if(!pd.value) pd.value = todayStr();
+  document.getElementById('mp-title').textContent='Novo post';
+  document.getElementById('p-obs').value='';
+  popSel();
   openModal('modal-post');
 }
-document.getElementById('btn-new-post').addEventListener('click', openPostModal);
-document.getElementById('btn-new-post-k').addEventListener('click', openPostModal);
-document.getElementById('mp-save').addEventListener('click', ()=>{
-  const c = getText('p-cliente');
-  const t = getText('p-tipo');
-  const d = getText('p-data');
-  const pr = getText('p-produtor');
-  const obs = getText('p-obs');
-  if(!c||!d){ alert('Preencha cliente e data'); return; }
-  DB.posts.push({id:uid(), cliente:c, tipo:t, data:d, produtor:pr, obs, etapa:0});
-  save('posts');
+document.getElementById('btn-new-post').onclick = openPostModal;
+document.getElementById('btn-new-post-k').onclick = openPostModal;
+document.getElementById('mp-save').onclick = async ()=>{
+  const c=document.getElementById('p-cliente').value;
+  const t=document.getElementById('p-tipo').value;
+  const d=document.getElementById('p-data').value;
+  const pr=document.getElementById('p-produtor').value;
+  const obs=document.getElementById('p-obs').value;
+  if(!c||!d){alert('Preencha cliente e data');return;}
+  DB.posts.push({id:uid(),cliente:c,tipo:t,data:d,produtor:pr,obs,etapa:0});
   closeModal('modal-post');
-  renderKanban(); renderAgenda(); renderPainel();
-});
+  document.getElementById('p-obs').value='';
+  await saveDB();
+};
 
-// ═══════════════════════════════════════════════════
-// VIDEO MODAL
-// ═══════════════════════════════════════════════════
-document.getElementById('btn-new-video').addEventListener('click', ()=>{
-  const sel = document.getElementById('v-cliente');
-  sel.innerHTML = '<option value="">Selecione</option>';
-  DB.clientes.forEach(c=>{ const o=document.createElement('option'); o.value=c.nome; o.textContent=c.nome; sel.appendChild(o); });
-  const vd = document.getElementById('v-data');
-  if(!vd.value) vd.value = todayStr();
-  openModal('modal-video');
-});
-document.getElementById('mv-save').addEventListener('click', ()=>{
-  const c = getText('v-cliente');
-  const p = getText('v-prod');
-  const d = getText('v-data');
-  if(!c){ alert('Selecione o cliente'); return; }
-  DB.videos.push({id:uid(), cliente:c, produtor:p, data:d});
-  save('videos');
+// ═══ VIDEO MODAL ═════════════════════════════════
+document.getElementById('btn-new-video').onclick = ()=>{ popSel(); openModal('modal-video'); };
+document.getElementById('mv-save').onclick = async ()=>{
+  const c=document.getElementById('v-cliente').value;
+  const p=document.getElementById('v-prod').value;
+  const d=document.getElementById('v-data').value;
+  if(!c){alert('Selecione o cliente');return;}
+  DB.videos.push({id:uid(),cliente:c,produtor:p,data:d});
   closeModal('modal-video');
-  renderVid();
-});
+  await saveDB();
+};
 
-// ═══════════════════════════════════════════════════
-// CLIENTE MODAL
-// ═══════════════════════════════════════════════════
+// ═══ CLIENTE MODAL ═══════════════════════════════
 function openClienteModal(editId){
-  state.editClienteId = editId || null;
-  if(editId){
-    const c = DB.clientes.find(x=>x.id===editId);
-    document.getElementById('mc-title').textContent = 'Editar cliente';
-    setText('c-nome', c.nome); setText('c-valor', c.valor); setText('c-dia', c.dia);
-  } else {
-    document.getElementById('mc-title').textContent = 'Novo cliente';
-    setText('c-nome',''); setText('c-valor',''); setText('c-dia','');
-  }
+  state.editClienteId=editId||null;
+  if(editId){ const c=DB.clientes.find(x=>x.id===editId); document.getElementById('mc-title').textContent='Editar cliente'; document.getElementById('c-nome').value=c.nome; document.getElementById('c-valor').value=c.valor; document.getElementById('c-dia').value=c.dia; }
+  else { document.getElementById('mc-title').textContent='Novo cliente'; document.getElementById('c-nome').value=''; document.getElementById('c-valor').value=''; document.getElementById('c-dia').value=''; }
   openModal('modal-cliente');
 }
-['btn-new-cliente','btn-new-cliente-eq'].forEach(id=>{
-  const el = document.getElementById(id);
-  if(el) el.addEventListener('click', ()=>openClienteModal(null));
-});
-document.getElementById('mc-save').addEventListener('click', ()=>{
-  const n = getText('c-nome').trim();
-  const v = parseFloat(getText('c-valor'))||0;
-  const d = parseInt(getText('c-dia'))||1;
-  if(!n){ alert('Informe o nome'); return; }
-  if(state.editClienteId){
-    const i = DB.clientes.findIndex(x=>x.id===state.editClienteId);
-    if(i>=0){ DB.clientes[i].nome=n; DB.clientes[i].valor=v; DB.clientes[i].dia=d; }
-  } else {
-    DB.clientes.push({id:uid(), nome:n, valor:v, dia:d});
-  }
-  save('clientes'); closeModal('modal-cliente');
-  renderFin(); renderEquipe(); renderPainel();
-});
+['btn-new-cliente','btn-new-cliente-eq'].forEach(id=>{ const e=document.getElementById(id); if(e)e.onclick=()=>openClienteModal(null); });
+document.getElementById('mc-save').onclick = async ()=>{
+  const n=document.getElementById('c-nome').value.trim();
+  const v=parseFloat(document.getElementById('c-valor').value)||0;
+  const d=parseInt(document.getElementById('c-dia').value)||1;
+  if(!n){alert('Informe o nome');return;}
+  if(state.editClienteId){ const i=DB.clientes.findIndex(x=>x.id===state.editClienteId); if(i>=0){DB.clientes[i].nome=n;DB.clientes[i].valor=v;DB.clientes[i].dia=d;} }
+  else DB.clientes.push({id:uid(),nome:n,valor:v,dia:d});
+  closeModal('modal-cliente');
+  await saveDB();
+};
 
-// ═══════════════════════════════════════════════════
-// FREELA MODAL
-// ═══════════════════════════════════════════════════
+// ═══ FREELA MODAL ════════════════════════════════
 function openFreelaModal(editId){
-  state.editFreelaId = editId || null;
-  if(editId){
-    const f = DB.freelas.find(x=>x.id===editId);
-    document.getElementById('mf-title').textContent = 'Editar freela';
-    setText('f-nome',f.nome); setText('f-valor',f.valor); setText('f-dia',f.dia);
-    document.getElementById('f-funcao').value = f.funcao;
-  } else {
-    document.getElementById('mf-title').textContent = 'Novo freela';
-    setText('f-nome',''); setText('f-valor',''); setText('f-dia','');
-  }
+  state.editFreelaId=editId||null;
+  if(editId){ const f=DB.freelas.find(x=>x.id===editId); document.getElementById('mf-title').textContent='Editar freela'; document.getElementById('f-nome').value=f.nome; document.getElementById('f-funcao').value=f.funcao; document.getElementById('f-valor').value=f.valor; document.getElementById('f-dia').value=f.dia; }
+  else { document.getElementById('mf-title').textContent='Novo freela'; document.getElementById('f-nome').value=''; document.getElementById('f-valor').value=''; document.getElementById('f-dia').value=''; }
   openModal('modal-freela');
 }
-['btn-new-freela','btn-new-freela-eq'].forEach(id=>{
-  const el = document.getElementById(id);
-  if(el) el.addEventListener('click', ()=>openFreelaModal(null));
-});
-document.getElementById('mf-save').addEventListener('click', ()=>{
-  const n = getText('f-nome').trim();
-  const fn = getText('f-funcao');
-  const v = parseFloat(getText('f-valor'))||0;
-  const d = parseInt(getText('f-dia'))||1;
-  if(!n){ alert('Informe o nome'); return; }
-  if(state.editFreelaId){
-    const i = DB.freelas.findIndex(x=>x.id===state.editFreelaId);
-    if(i>=0){ DB.freelas[i].nome=n; DB.freelas[i].funcao=fn; DB.freelas[i].valor=v; DB.freelas[i].dia=d; }
-  } else {
-    DB.freelas.push({id:uid(), nome:n, funcao:fn, valor:v, dia:d});
-  }
-  save('freelas'); closeModal('modal-freela');
-  renderFin(); renderEquipe(); renderPainel();
-});
+['btn-new-freela','btn-new-freela-eq'].forEach(id=>{ const e=document.getElementById(id); if(e)e.onclick=()=>openFreelaModal(null); });
+document.getElementById('mf-save').onclick = async ()=>{
+  const n=document.getElementById('f-nome').value.trim();
+  const fn=document.getElementById('f-funcao').value;
+  const v=parseFloat(document.getElementById('f-valor').value)||0;
+  const d=parseInt(document.getElementById('f-dia').value)||1;
+  if(!n){alert('Informe o nome');return;}
+  if(state.editFreelaId){ const i=DB.freelas.findIndex(x=>x.id===state.editFreelaId); if(i>=0){DB.freelas[i].nome=n;DB.freelas[i].funcao=fn;DB.freelas[i].valor=v;DB.freelas[i].dia=d;} }
+  else DB.freelas.push({id:uid(),nome:n,funcao:fn,valor:v,dia:d});
+  closeModal('modal-freela');
+  await saveDB();
+};
 
-// ═══════════════════════════════════════════════════
-// IA MODAL
-// ═══════════════════════════════════════════════════
+// ═══ IA MODAL ════════════════════════════════════
 function openIAModal(editId){
-  state.editIAId = editId || null;
-  if(editId){
-    const ia = DB.ias.find(x=>x.id===editId);
-    document.getElementById('mia-title').textContent = 'Editar IA';
-    setText('ia-nome',ia.nome); setText('ia-valor',ia.valor);
-    document.getElementById('ia-cat').value = ia.cat||'Texto/Chat';
-  } else {
-    document.getElementById('mia-title').textContent = 'Nova IA';
-    setText('ia-nome',''); setText('ia-valor','');
-  }
+  state.editIAId=editId||null;
+  if(editId){ const ia=DB.ias.find(x=>x.id===editId); document.getElementById('mia-title').textContent='Editar IA'; document.getElementById('ia-nome').value=ia.nome; document.getElementById('ia-valor').value=ia.valor; document.getElementById('ia-cat').value=ia.cat; }
+  else { document.getElementById('mia-title').textContent='Nova IA'; document.getElementById('ia-nome').value=''; document.getElementById('ia-valor').value=''; }
   openModal('modal-ia');
 }
-document.getElementById('btn-new-ia').addEventListener('click', ()=>openIAModal(null));
-document.getElementById('mia-save').addEventListener('click', ()=>{
-  const n = getText('ia-nome').trim();
-  const v = parseFloat(getText('ia-valor'))||0;
-  const cat = getText('ia-cat');
-  if(!n){ alert('Informe o nome'); return; }
-  if(state.editIAId){
-    const i = DB.ias.findIndex(x=>x.id===state.editIAId);
-    if(i>=0){ DB.ias[i].nome=n; DB.ias[i].valor=v; DB.ias[i].cat=cat; }
-  } else {
-    DB.ias.push({id:uid(), nome:n, valor:v, cat});
-  }
-  save('ias'); closeModal('modal-ia');
-  renderIA(); renderEquipe(); renderPainel();
-});
+document.getElementById('btn-new-ia').onclick = ()=>openIAModal(null);
+document.getElementById('mia-save').onclick = async ()=>{
+  const n=document.getElementById('ia-nome').value.trim();
+  const v=parseFloat(document.getElementById('ia-valor').value)||0;
+  const cat=document.getElementById('ia-cat').value;
+  if(!n){alert('Informe o nome');return;}
+  if(state.editIAId){ const i=DB.ias.findIndex(x=>x.id===state.editIAId); if(i>=0){DB.ias[i].nome=n;DB.ias[i].valor=v;DB.ias[i].cat=cat;} }
+  else DB.ias.push({id:uid(),nome:n,valor:v,cat});
+  closeModal('modal-ia');
+  await saveDB();
+};
 
-// META MODAL
-document.getElementById('btn-meta').addEventListener('click', ()=>{
-  setText('meta-s', DB.meta.s||''); setText('meta-m', DB.meta.m||'');
-  openModal('modal-meta');
-});
-document.getElementById('mm-save').addEventListener('click', ()=>{
-  DB.meta.s = parseInt(getText('meta-s'))||0;
-  DB.meta.m = parseInt(getText('meta-m'))||0;
-  save('meta'); closeModal('modal-meta'); renderVid();
-});
+// ═══ META MODAL ══════════════════════════════════
+document.getElementById('btn-meta').onclick = ()=>{ document.getElementById('meta-s').value=DB.meta.s||''; document.getElementById('meta-m').value=DB.meta.m||''; openModal('modal-meta'); };
+document.getElementById('mm-save').onclick = async ()=>{ DB.meta.s=parseInt(document.getElementById('meta-s').value)||0; DB.meta.m=parseInt(document.getElementById('meta-m').value)||0; closeModal('modal-meta'); await saveDB(); };
 
-// ═══════════════════════════════════════════════════
-// MONTH TABS
-// ═══════════════════════════════════════════════════
-function buildMTabs(containerId, selM, selY, groupKey, onSelect){
-  const off = state.tabOff[groupKey]||0;
-  const now = new Date();
-  const base = new Date(now.getFullYear(), now.getMonth()+off, 1);
-  const tabs = [];
-  for(let i=0;i<7;i++){
-    let mo=base.getMonth()+i, y=base.getFullYear();
-    while(mo>11){mo-=12;y++}
-    tabs.push({m:mo,y});
-  }
-  const container = document.getElementById(containerId);
-  container.innerHTML = '';
-
-  const prev = el('button','mtab-nav','←');
-  prev.addEventListener('click', ()=>{ state.tabOff[groupKey]=(state.tabOff[groupKey]||0)-7; buildMTabs(containerId,selM,selY,groupKey,onSelect); });
-  container.appendChild(prev);
-
-  tabs.forEach(t=>{
-    const btn = el('button','mtab'+(t.m===selM&&t.y===selY?' active':''), MESES[t.m].slice(0,3)+' '+t.y);
-    btn.addEventListener('click', ()=>onSelect(t.m, t.y));
-    container.appendChild(btn);
-  });
-
-  const next = el('button','mtab-nav','→');
-  next.addEventListener('click', ()=>{ state.tabOff[groupKey]=(state.tabOff[groupKey]||0)+7; buildMTabs(containerId,selM,selY,groupKey,onSelect); });
-  container.appendChild(next);
-}
-
-// ═══════════════════════════════════════════════════
-// PAINEL
-// ═══════════════════════════════════════════════════
-document.getElementById('painel-prev-week').addEventListener('click', ()=>{ state.panWOff--; renderPainel(); });
-document.getElementById('painel-next-week').addEventListener('click', ()=>{ state.panWOff++; renderPainel(); });
+// ═══ PAINEL ══════════════════════════════════════
+document.getElementById('painel-prev-week').onclick = ()=>{ state.panWOff--; renderPainel(); };
+document.getElementById('painel-next-week').onclick = ()=>{ state.panWOff++; renderPainel(); };
 
 function renderPainel(){
-  buildMTabs('painel-mtabs', state.panM, state.panY, 'pan', (m,y)=>{ state.panM=m; state.panY=y; renderPainel(); });
-  const wd = weekDates(state.panWOff);
-  const wP = DB.posts.filter(p=>p.data>=wd[0]&&p.data<=wd[6]);
-  const wV = DB.videos.filter(v=>v.data>=wd[0]&&v.data<=wd[6]);
-  const m=state.panM, y=state.panY;
-  const venc = DB.clientes.filter(c=>getSt(c.dia,isPaid(c.id,y,m,'c'))==='vencido');
-
+  buildMTabs('painel-mtabs',state.panM,state.panY,'pan',(m,y)=>{state.panM=m;state.panY=y;renderPainel();});
+  const wd=weekDates(state.panWOff);
+  const wP=DB.posts.filter(p=>p.data>=wd[0]&&p.data<=wd[6]);
+  const wV=DB.videos.filter(v=>v.data>=wd[0]&&v.data<=wd[6]);
+  const m=state.panM,y=state.panY;
+  const venc=DB.clientes.filter(c=>getSt(c.dia,isPaid(c.id,y,m,'c'))==='vencido');
   let al='';
-  if(venc.length) al+=`<div class="al al-danger">⚠ Pagamentos vencidos em ${MESES[m]}: ${venc.map(c=>c.nome).join(', ')}</div>`;
-  const atras = DB.posts.filter(p=>p.etapa<4&&p.data<todayStr());
-  if(atras.length) al+=`<div class="al al-warning">⏰ ${atras.length} post(s) com data passada ainda não publicados</div>`;
-  if(!al) al='<div class="al al-success">✓ Tudo em dia!</div>';
-  setHTML('painel-alerts', al);
-
-  document.getElementById('painel-mes-label').textContent = MESES[m]+' '+y;
-  document.getElementById('painel-status-mes').textContent = MESES[m]+' '+y;
-  document.getElementById('ps-bruto').textContent = fmtR(totC());
-  document.getElementById('ps-gastos').textContent = fmtR(totGastos());
-  document.getElementById('ps-liquido').textContent = fmtR(totLiq());
-  document.getElementById('painel-week-label').textContent = fmt(wd[0])+' – '+fmt(wd[6]);
-
-  setHTML('painel-metrics',
+  if(venc.length)al+=`<div class="al al-danger">⚠ Pagamentos vencidos em ${MESES[m]}: ${venc.map(c=>c.nome).join(', ')}</div>`;
+  const atras=DB.posts.filter(p=>p.etapa<4&&p.data<todayStr());
+  if(atras.length)al+=`<div class="al al-warning">⏰ ${atras.length} post(s) com data passada ainda não publicados</div>`;
+  if(!al)al='<div class="al al-success">✓ Tudo em dia!</div>';
+  document.getElementById('painel-alerts').innerHTML=al;
+  document.getElementById('painel-mes-label').textContent=MESES[m]+' '+y;
+  document.getElementById('painel-status-mes').textContent=MESES[m]+' '+y;
+  document.getElementById('ps-bruto').textContent=fmtR(totC());
+  document.getElementById('ps-gastos').textContent=fmtR(totGastos());
+  document.getElementById('ps-liquido').textContent=fmtR(totLiq());
+  document.getElementById('painel-week-label').textContent=fmt(wd[0])+' – '+fmt(wd[6]);
+  document.getElementById('painel-metrics').innerHTML=
     `<div class="metric"><div class="ml">Posts semana</div><div class="mv">${wP.length}</div></div>`+
     `<div class="metric"><div class="ml">Clientes ativos</div><div class="mv">${DB.clientes.length}</div></div>`+
     `<div class="metric"><div class="ml">Vídeos semana</div><div class="mv">${wV.length}</div></div>`+
-    `<div class="metric"><div class="ml">No Instagram</div><div class="mv">${DB.posts.filter(p=>p.etapa===4&&p.data>=wd[0]&&p.data<=wd[6]).length}</div></div>`
-  );
-
-  setHTML('painel-etapas', ETAPAS.map((e,i)=>
+    `<div class="metric"><div class="ml">No Instagram</div><div class="mv">${DB.posts.filter(p=>p.etapa===4&&p.data>=wd[0]&&p.data<=wd[6]).length}</div></div>`;
+  document.getElementById('painel-etapas').innerHTML=ETAPAS.map((e,i)=>
     `<div style="background:${ETAPA_BG[i]};border-radius:8px;padding:.75rem;text-align:center"><div style="font-size:10px;color:${ETAPA_TX[i]};margin-bottom:3px">${e}</div><div style="font-size:22px;font-weight:700;color:${ETAPA_TX[i]}">${DB.posts.filter(p=>p.etapa===i&&p.data>=wd[0]&&p.data<=wd[6]).length}</div></div>`
   ).join(''));
-
-  // Post counter
-  const pcc = document.getElementById('painel-post-counter');
-  pcc.innerHTML = '';
-  if(!DB.clientes.length){ pcc.innerHTML='<div class="empty">Nenhum cliente</div>'; }
+  const pcc=document.getElementById('painel-post-counter');
+  pcc.innerHTML='';
+  if(!DB.clientes.length){pcc.innerHTML='<div class="empty">Nenhum cliente</div>';}
   else DB.clientes.forEach(c=>{
-    const cp = wP.filter(p=>p.cliente===c.nome);
-    const tot=cp.length, r=cp.filter(p=>p.tipo==='Reels').length, u=cp.filter(p=>p.tipo==='Post único').length, ca=cp.filter(p=>p.tipo==='Carrossel').length, ig=cp.filter(p=>p.etapa===4).length;
-    const card = el('div','pcc');
-    card.innerHTML = `<div class="pcc-name">${c.nome}</div><div class="pcc-row"><span>Reels</span><b>${r}</b></div><div class="pcc-row"><span>Post único</span><b>${u}</b></div><div class="pcc-row"><span>Carrossel</span><b>${ca}</b></div><div class="pcc-row" style="border-top:1px solid #f0f0eb;padding-top:4px;margin-top:4px"><span>No Instagram</span><b>${ig}</b></div><div class="pcc-total ${ig===tot&&tot>0?'c-ok':tot>0?'c-warn':'c-bad'}">${tot} post${tot!==1?'s':''} na semana</div>`;
+    const cp=wP.filter(p=>p.cliente===c.nome);
+    const tot=cp.length,r=cp.filter(p=>p.tipo==='Reels').length,u=cp.filter(p=>p.tipo==='Post único').length,ca=cp.filter(p=>p.tipo==='Carrossel').length,ig=cp.filter(p=>p.etapa===4).length;
+    const card=el('div','pcc');
+    card.innerHTML=`<div class="pcc-name">${c.nome}</div><div class="pcc-row"><span>Reels</span><b>${r}</b></div><div class="pcc-row"><span>Post único</span><b>${u}</b></div><div class="pcc-row"><span>Carrossel</span><b>${ca}</b></div><div class="pcc-row" style="border-top:1px solid #f0f0eb;padding-top:4px;margin-top:4px"><span>No Instagram</span><b>${ig}</b></div><div class="pcc-total ${ig===tot&&tot>0?'c-ok':tot>0?'c-warn':'c-bad'}">${tot} post${tot!==1?'s':''} na semana</div>`;
     pcc.appendChild(card);
   });
-
-  // Status pagamento
-  const cs = document.getElementById('painel-clientes-status');
-  cs.innerHTML = '';
-  if(!DB.clientes.length){ cs.innerHTML='<div class="empty">Nenhum cliente</div>'; return; }
-  const grid = el('div');
-  grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px';
+  const cs=document.getElementById('painel-clientes-status');
+  cs.innerHTML='';
+  if(!DB.clientes.length){cs.innerHTML='<div class="empty">Nenhum cliente</div>';return;}
+  const grid=el('div');
+  grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px';
   DB.clientes.forEach(c=>{
-    const paid=isPaid(c.id,y,m,'c'), st=getSt(c.dia,paid);
+    const paid=isPaid(c.id,y,m,'c'),st=getSt(c.dia,paid);
     const color=st==='pago'?'#3b6d11':st==='vencido'?'#a32d2d':'#854f0b';
     const bg=st==='pago'?'#eaf3de':st==='vencido'?'#fff0f0':'#faeeda';
-    const card = el('div');
-    card.style.cssText = `background:${bg};border-radius:8px;padding:.75rem;display:flex;justify-content:space-between;align-items:center`;
-    const info = el('div');
-    const nm = el('div','',c.nome); nm.style.cssText=`font-size:13px;font-weight:700;color:${color}`;
-    const vl = el('div','',fmtR(c.valor)); vl.style.cssText=`font-size:11px;color:${color}`;
-    info.appendChild(nm); info.appendChild(vl);
+    const card=el('div');
+    card.style.cssText=`background:${bg};border-radius:8px;padding:.75rem;display:flex;justify-content:space-between;align-items:center`;
+    const info=el('div');
+    const nm=el('div','',c.nome);nm.style.cssText=`font-size:13px;font-weight:700;color:${color}`;
+    const vl=el('div','',fmtR(c.valor));vl.style.cssText=`font-size:11px;color:${color}`;
+    info.appendChild(nm);info.appendChild(vl);
     card.appendChild(info);
-    card.appendChild(badge('badge b'+st.slice(0,2), {pago:'Pago',pendente:'Pendente',vencido:'Vencido'}[st]));
+    card.appendChild(badge('badge b'+st.slice(0,2),{pago:'Pago',pendente:'Pendente',vencido:'Vencido'}[st]));
     grid.appendChild(card);
   });
   cs.appendChild(grid);
 }
 
-// ═══════════════════════════════════════════════════
-// AGENDA
-// ═══════════════════════════════════════════════════
-document.getElementById('ag-prev').addEventListener('click', ()=>{ state.agOff--; renderAgenda(); });
-document.getElementById('ag-next').addEventListener('click', ()=>{ state.agOff++; renderAgenda(); });
-
+// ═══ AGENDA ══════════════════════════════════════
+document.getElementById('ag-prev').onclick=()=>{state.agOff--;renderAgenda();};
+document.getElementById('ag-next').onclick=()=>{state.agOff++;renderAgenda();};
 function renderAgenda(){
-  const wd = weekDates(state.agOff);
-  document.getElementById('ag-label').textContent = fmt(wd[0])+' – '+fmt(wd[6]);
-  const td = todayStr();
-  const container = document.getElementById('agenda-days');
-  container.innerHTML = '';
+  const wd=weekDates(state.agOff);
+  document.getElementById('ag-label').textContent=fmt(wd[0])+' – '+fmt(wd[6]);
+  const td=todayStr();
+  const container=document.getElementById('agenda-days');
+  container.innerHTML='';
   wd.forEach(dateS=>{
-    const d = new Date(dateS+'T12:00:00');
-    const dp = DB.posts.filter(p=>p.data===dateS);
-    const isT = dateS===td;
-    const block = el('div','day-block');
-    const title = el('div','day-title');
-    const span1 = el('span','',DIAS[d.getDay()]+', '+fmt(dateS));
-    title.appendChild(span1);
-    if(isT){ title.appendChild(el('span','day-today','Hoje')); }
-    const cnt = el('span','',dp.length+' post'+(dp.length!==1?'s':''));
+    const d=new Date(dateS+'T12:00:00');
+    const dp=DB.posts.filter(p=>p.data===dateS);
+    const isT=dateS===td;
+    const block=el('div','day-block');
+    const title=el('div','day-title');
+    title.appendChild(el('span','',DIAS[d.getDay()]+', '+fmt(dateS)));
+    if(isT)title.appendChild(el('span','day-today','Hoje'));
+    const cnt=el('span','',dp.length+' post'+(dp.length!==1?'s':''));
     cnt.style.cssText='font-size:11px;color:#ccc;margin-left:auto';
     title.appendChild(cnt);
     block.appendChild(title);
-    if(!dp.length){
-      const empty = el('div','','Nenhum post planejado');
-      empty.style.cssText='font-size:12px;color:#ccc;padding:4px 0';
-      block.appendChild(empty);
-    } else {
-      dp.forEach(p=>{
-        const row = el('div','dpr');
-        const nm = el('span','',p.cliente); nm.style.cssText='font-weight:700;flex:1';
-        row.appendChild(nm);
-        row.appendChild(badge(p.tipo==='Reels'?'badge br':p.tipo==='Post único'?'badge bu':'badge bc', p.tipo));
-        const etBtn = el('span','',ETAPAS[p.etapa]);
-        etBtn.style.cssText=`font-size:10px;background:${ETAPA_BG[p.etapa]};color:${ETAPA_TX[p.etapa]};padding:2px 8px;border-radius:99px;white-space:nowrap`;
-        row.appendChild(etBtn);
-        const prod = el('span','',p.produtor); prod.style.cssText='font-size:11px;color:#888';
-        row.appendChild(prod);
-        block.appendChild(row);
-      });
-    }
+    if(!dp.length){const e=el('div','','Nenhum post planejado');e.style.cssText='font-size:12px;color:#ccc;padding:4px 0';block.appendChild(e);}
+    else dp.forEach(p=>{
+      const row=el('div','dpr');
+      const nm=el('span','',p.cliente);nm.style.cssText='font-weight:700;flex:1';
+      row.appendChild(nm);
+      row.appendChild(badge(p.tipo==='Reels'?'badge br':p.tipo==='Post único'?'badge bu':'badge bc',p.tipo));
+      const et=el('span','',ETAPAS[p.etapa]);
+      et.style.cssText=`font-size:10px;background:${ETAPA_BG[p.etapa]};color:${ETAPA_TX[p.etapa]};padding:2px 8px;border-radius:99px;white-space:nowrap`;
+      row.appendChild(et);
+      const prod=el('span','',p.produtor);prod.style.cssText='font-size:11px;color:#888';
+      row.appendChild(prod);
+      block.appendChild(row);
+    });
     container.appendChild(block);
   });
 }
 
-// ═══════════════════════════════════════════════════
-// KANBAN
-// ═══════════════════════════════════════════════════
-let dragId = null;
-
+// ═══ KANBAN ══════════════════════════════════════
+let dragId=null;
 function renderKanban(){
-  const board = document.getElementById('kanban-board');
-  board.innerHTML = '';
+  const board=document.getElementById('kanban-board');
+  board.innerHTML='';
   ETAPAS.forEach((etapa,i)=>{
-    const col = el('div','kcol');
-    col.dataset.col = i;
-    col.addEventListener('dragover', e=>{ e.preventDefault(); e.dataTransfer.dropEffect='move'; document.querySelectorAll('.kcol').forEach(c=>c.classList.remove('drag-over')); col.classList.add('drag-over'); });
-    col.addEventListener('dragleave', e=>{ if(!col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
-    col.addEventListener('drop', e=>{
+    const col=el('div','kcol');
+    col.dataset.col=i;
+    col.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';document.querySelectorAll('.kcol').forEach(c=>c.classList.remove('drag-over'));col.classList.add('drag-over');});
+    col.addEventListener('dragleave',e=>{if(!col.contains(e.relatedTarget))col.classList.remove('drag-over');});
+    col.addEventListener('drop',async e=>{
       e.preventDefault();
       document.querySelectorAll('.kcol').forEach(c=>c.classList.remove('drag-over'));
-      if(dragId===null) return;
-      const p = DB.posts.find(x=>x.id===dragId);
-      if(p && p.etapa!==i){ p.etapa=i; save('posts'); renderKanban(); renderAgenda(); renderPainel(); }
+      if(dragId===null)return;
+      const p=DB.posts.find(x=>x.id===dragId);
+      if(p&&p.etapa!==i){p.etapa=i;await saveDB();}
       dragId=null;
     });
-
-    const head = el('div','khead');
-    head.style.color = ETAPA_TX[i];
+    const head=el('div','khead');head.style.color=ETAPA_TX[i];
     head.appendChild(el('span','',etapa));
-    const ep = DB.posts.filter(p=>p.etapa===i);
+    const ep=DB.posts.filter(p=>p.etapa===i);
     head.appendChild(el('span','kcnt',''+ep.length));
     col.appendChild(head);
-
-    if(!ep.length){
-      const empty = el('div','empty','Arraste um card aqui');
-      empty.style.padding='1rem 0';
-      col.appendChild(empty);
-    } else {
-      ep.forEach(p=>{
-        const card = el('div','kcard'+(i===4?' posted':''));
-        card.draggable = true;
-        card.dataset.id = p.id;
-        card.addEventListener('dragstart', e=>{ dragId=p.id; e.dataTransfer.effectAllowed='move'; setTimeout(()=>card.classList.add('dragging'),0); });
-        card.addEventListener('dragend', ()=>{ card.classList.remove('dragging'); document.querySelectorAll('.kcol').forEach(c=>c.classList.remove('drag-over')); dragId=null; });
-
-        const client = el('div','kcard-client', p.cliente+(i===4?' ✓':''));
-        card.appendChild(client);
-        card.appendChild(badge(p.tipo==='Reels'?'badge br':p.tipo==='Post único'?'badge bu':'badge bc', p.tipo));
-        const meta = el('div','kcard-meta', fmtFull(p.data)+' · '+p.produtor+(p.obs?' · '+p.obs:''));
-        card.appendChild(meta);
-
-        const acts = el('div','kcard-acts');
-        acts.appendChild(btnDel(()=>{
-          if(!confirm('Remover este post?')) return;
-          DB.posts = DB.posts.filter(x=>x.id!==p.id);
-          save('posts'); renderKanban(); renderAgenda(); renderPainel();
-        }));
-        card.appendChild(acts);
-        col.appendChild(card);
-      });
-    }
+    if(!ep.length){const e=el('div','empty','Arraste um card aqui');e.style.padding='1rem 0';col.appendChild(e);}
+    else ep.forEach(p=>{
+      const card=el('div','kcard'+(i===4?' posted':''));
+      card.draggable=true;
+      card.dataset.id=p.id;
+      card.addEventListener('dragstart',e=>{dragId=p.id;e.dataTransfer.effectAllowed='move';setTimeout(()=>card.classList.add('dragging'),0);});
+      card.addEventListener('dragend',()=>{card.classList.remove('dragging');document.querySelectorAll('.kcol').forEach(c=>c.classList.remove('drag-over'));dragId=null;});
+      card.appendChild(el('div','kcard-client',p.cliente+(i===4?' ✓':'')));
+      card.appendChild(badge(p.tipo==='Reels'?'badge br':p.tipo==='Post único'?'badge bu':'badge bc',p.tipo));
+      card.appendChild(el('div','kcard-meta',fmtFull(p.data)+' · '+p.produtor+(p.obs?' · '+p.obs:'')));
+      const acts=el('div','kcard-acts');
+      acts.appendChild(btnDel(async()=>{
+        if(!confirm('Remover este post?'))return;
+        DB.posts=DB.posts.filter(x=>x.id!==p.id);
+        await saveDB();
+      }));
+      card.appendChild(acts);
+      col.appendChild(card);
+    });
     board.appendChild(col);
   });
 }
 
-// ═══════════════════════════════════════════════════
-// VÍDEOS
-// ═══════════════════════════════════════════════════
-document.getElementById('vid-prev').addEventListener('click', ()=>{ state.vidWOff--; renderVidSemana(); });
-document.getElementById('vid-next').addEventListener('click', ()=>{ state.vidWOff++; renderVidSemana(); });
-document.getElementById('vid-tabs').addEventListener('click', e=>{
-  const btn = e.target.closest('.tab');
-  if(!btn) return;
-  const tab = btn.dataset.vtab;
-  state.currentVidTab = tab;
-  document.querySelectorAll('#vid-tabs .tab').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('vid-semana').style.display = tab==='semana'?'':'none';
-  document.getElementById('vid-mes').style.display = tab==='mes'?'':'none';
-  if(tab==='semana') renderVidSemana(); else renderVidMes();
+// ═══ VÍDEOS ══════════════════════════════════════
+document.getElementById('vid-prev').onclick=()=>{state.vidWOff--;renderVidSemana();};
+document.getElementById('vid-next').onclick=()=>{state.vidWOff++;renderVidSemana();};
+document.getElementById('vid-tabs').addEventListener('click',e=>{
+  const btn=e.target.closest('.tab');if(!btn)return;
+  const tab=btn.dataset.vtab;state.currentVidTab=tab;
+  document.querySelectorAll('#vid-tabs .tab').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  document.getElementById('vid-semana').style.display=tab==='semana'?'':'none';
+  document.getElementById('vid-mes').style.display=tab==='mes'?'':'none';
+  if(tab==='semana')renderVidSemana();else renderVidMes();
 });
-
-function renderVid(){ if(state.currentVidTab==='semana') renderVidSemana(); else renderVidMes(); }
-
+function renderVid(){if(state.currentVidTab==='semana')renderVidSemana();else renderVidMes();}
+function pbar(a,mt){
+  if(!mt)return '';
+  const pct=Math.min(100,Math.round((a/mt)*100));
+  const col=a>=mt?'#1D9E75':a>=(mt*.7)?'#f59e0b':'#ef4444';
+  return `<div class="pbar-wrap"><div class="pbar-txt">${a}/${mt} (${pct}%)</div><div class="pbar"><div class="pfill" style="width:${pct}%;background:${col}"></div></div></div>`;
+}
 function renderVidSemana(){
-  const wd = weekDates(state.vidWOff);
-  document.getElementById('vid-label').textContent = fmt(wd[0])+' – '+fmt(wd[6]);
-  const wv = DB.videos.filter(v=>v.data>=wd[0]&&v.data<=wd[6]);
-  const edV = wv.filter(v=>v.produtor==='Editor').length;
-  const euV = wv.filter(v=>v.produtor==='Eu').length;
-  let statsHTML = `<div class="card"><div class="g3">`;
-  statsHTML += `<div class="metric"><div class="ml">Editor</div><div class="mv">${edV}</div>`;
-  if(DB.meta.s){ const pct=Math.min(100,Math.round((edV/DB.meta.s)*100)); const col=edV>=DB.meta.s?'#1D9E75':edV>=(DB.meta.s*.7)?'#f59e0b':'#ef4444'; statsHTML+=`<div class="pbar-wrap"><div class="pbar-txt">${edV}/${DB.meta.s} (${pct}%)</div><div class="pbar"><div class="pfill" style="width:${pct}%;background:${col}"></div></div></div>`; }
-  statsHTML += `</div><div class="metric"><div class="ml">Seus</div><div class="mv">${euV}</div></div><div class="metric"><div class="ml">Total</div><div class="mv">${edV+euV}</div></div></div>`;
-  if(DB.meta.s) statsHTML += edV>=DB.meta.s?`<div class="al al-success">✓ Meta semanal atingida!</div>`:`<div class="al al-warning">⚠ Faltam ${DB.meta.s-edV} vídeos para a meta semanal</div>`;
-  statsHTML += '</div>';
-  setHTML('vid-week-stats', statsHTML);
-
-  const tb = document.getElementById('vt-s');
-  tb.innerHTML = '';
-  if(!wv.length){ tb.innerHTML='<tr><td colspan="4" class="empty">Nenhum vídeo esta semana</td></tr>'; return; }
+  const wd=weekDates(state.vidWOff);
+  document.getElementById('vid-label').textContent=fmt(wd[0])+' – '+fmt(wd[6]);
+  const wv=DB.videos.filter(v=>v.data>=wd[0]&&v.data<=wd[6]);
+  const edV=wv.filter(v=>v.produtor==='Editor').length,euV=wv.filter(v=>v.produtor==='Eu').length;
+  const smsg=DB.meta.s>0?(edV>=DB.meta.s?`<div class="al al-success">✓ Meta semanal atingida!</div>`:`<div class="al al-warning">⚠ Faltam ${DB.meta.s-edV} vídeos para a meta semanal (${edV}/${DB.meta.s})</div>`):'';
+  document.getElementById('vid-week-stats').innerHTML=`<div class="card"><div class="g3"><div class="metric"><div class="ml">Editor</div><div class="mv">${edV}</div>${DB.meta.s?pbar(edV,DB.meta.s):''}</div><div class="metric"><div class="ml">Seus</div><div class="mv">${euV}</div></div><div class="metric"><div class="ml">Total</div><div class="mv">${edV+euV}</div></div></div>${smsg}</div>`;
+  const tb=document.getElementById('vt-s');tb.innerHTML='';
+  if(!wv.length){tb.innerHTML='<tr><td colspan="4" class="empty">Nenhum vídeo esta semana</td></tr>';return;}
   wv.slice().reverse().forEach(v=>{
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${v.cliente}</td><td><span class="badge ${v.produtor==='Editor'?'bc':'bu'}">${v.produtor}</span></td><td>${fmtFull(v.data)}</td>`;
-    const td = document.createElement('td');
-    td.appendChild(btnDel(()=>{
-      if(!confirm('Remover?')) return;
-      DB.videos = DB.videos.filter(x=>x.id!==v.id);
-      save('videos'); renderVid();
-    }));
-    tr.appendChild(td);
-    tb.appendChild(tr);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${v.cliente}</td><td><span class="badge ${v.produtor==='Editor'?'bc':'bu'}">${v.produtor}</span></td><td>${fmtFull(v.data)}</td>`;
+    const td=document.createElement('td');
+    td.appendChild(btnDel(async()=>{if(!confirm('Remover?'))return;DB.videos=DB.videos.filter(x=>x.id!==v.id);await saveDB();}));
+    tr.appendChild(td);tb.appendChild(tr);
   });
 }
-
 function renderVidMes(){
-  buildMTabs('vid-mtabs', state.vidM, state.vidY, 'vid', (m,y)=>{ state.vidM=m; state.vidY=y; renderVidMes(); });
-  const ms = String(state.vidY)+'-'+String(state.vidM+1).padStart(2,'0');
-  const mv = DB.videos.filter(v=>v.data&&v.data.startsWith(ms));
-  const edV = mv.filter(v=>v.produtor==='Editor').length;
-  const euV = mv.filter(v=>v.produtor==='Eu').length;
-  let statsHTML = `<div class="card"><div class="g3">`;
-  statsHTML += `<div class="metric"><div class="ml">Editor — ${MESES[state.vidM].slice(0,3)}</div><div class="mv">${edV}</div>`;
-  if(DB.meta.m){ const pct=Math.min(100,Math.round((edV/DB.meta.m)*100)); const col=edV>=DB.meta.m?'#1D9E75':edV>=(DB.meta.m*.7)?'#f59e0b':'#ef4444'; statsHTML+=`<div class="pbar-wrap"><div class="pbar-txt">${edV}/${DB.meta.m} (${pct}%)</div><div class="pbar"><div class="pfill" style="width:${pct}%;background:${col}"></div></div></div>`; }
-  statsHTML += `</div><div class="metric"><div class="ml">Seus</div><div class="mv">${euV}</div></div><div class="metric"><div class="ml">Total</div><div class="mv">${edV+euV}</div></div></div>`;
-  if(DB.meta.m) statsHTML += edV>=DB.meta.m?`<div class="al al-success">✓ Meta mensal atingida!</div>`:`<div class="al al-warning">⚠ Faltam ${DB.meta.m-edV} vídeos para a meta mensal</div>`;
-  statsHTML += '</div>';
-  setHTML('vid-mes-stats', statsHTML);
-
-  const tb = document.getElementById('vt-m');
-  tb.innerHTML = '';
-  if(!mv.length){ tb.innerHTML='<tr><td colspan="4" class="empty">Nenhum vídeo neste mês</td></tr>'; return; }
+  buildMTabs('vid-mtabs',state.vidM,state.vidY,'vid',(m,y)=>{state.vidM=m;state.vidY=y;renderVidMes();});
+  const ms=String(state.vidY)+'-'+String(state.vidM+1).padStart(2,'0');
+  const mv=DB.videos.filter(v=>v.data&&v.data.startsWith(ms));
+  const edV=mv.filter(v=>v.produtor==='Editor').length,euV=mv.filter(v=>v.produtor==='Eu').length;
+  const mmsg=DB.meta.m>0?(edV>=DB.meta.m?`<div class="al al-success">✓ Meta mensal atingida!</div>`:`<div class="al al-warning">⚠ Faltam ${DB.meta.m-edV} vídeos para a meta mensal</div>`):'';
+  document.getElementById('vid-mes-stats').innerHTML=`<div class="card"><div class="g3"><div class="metric"><div class="ml">Editor — ${MESES[state.vidM].slice(0,3)}</div><div class="mv">${edV}</div>${DB.meta.m?pbar(edV,DB.meta.m):''}</div><div class="metric"><div class="ml">Seus</div><div class="mv">${euV}</div></div><div class="metric"><div class="ml">Total</div><div class="mv">${edV+euV}</div></div></div>${mmsg}</div>`;
+  const tb=document.getElementById('vt-m');tb.innerHTML='';
+  if(!mv.length){tb.innerHTML='<tr><td colspan="4" class="empty">Nenhum vídeo neste mês</td></tr>';return;}
   mv.slice().reverse().forEach(v=>{
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${v.cliente}</td><td><span class="badge ${v.produtor==='Editor'?'bc':'bu'}">${v.produtor}</span></td><td>${fmtFull(v.data)}</td>`;
-    const td = document.createElement('td');
-    td.appendChild(btnDel(()=>{
-      if(!confirm('Remover?')) return;
-      DB.videos = DB.videos.filter(x=>x.id!==v.id);
-      save('videos'); renderVid();
-    }));
-    tr.appendChild(td);
-    tb.appendChild(tr);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${v.cliente}</td><td><span class="badge ${v.produtor==='Editor'?'bc':'bu'}">${v.produtor}</span></td><td>${fmtFull(v.data)}</td>`;
+    const td=document.createElement('td');
+    td.appendChild(btnDel(async()=>{if(!confirm('Remover?'))return;DB.videos=DB.videos.filter(x=>x.id!==v.id);await saveDB();}));
+    tr.appendChild(td);tb.appendChild(tr);
   });
 }
 
-// ═══════════════════════════════════════════════════
-// FINANCEIRO
-// ═══════════════════════════════════════════════════
-document.getElementById('fin-tabs').addEventListener('click', e=>{
-  const btn = e.target.closest('.tab');
-  if(!btn) return;
-  const tab = btn.dataset.ftab;
-  document.querySelectorAll('#fin-tabs .tab').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('fin-c').style.display = tab==='c'?'':'none';
-  document.getElementById('fin-f').style.display = tab==='f'?'':'none';
+// ═══ FINANCEIRO ══════════════════════════════════
+document.getElementById('fin-tabs').addEventListener('click',e=>{
+  const btn=e.target.closest('.tab');if(!btn)return;
+  const tab=btn.dataset.ftab;
+  document.querySelectorAll('#fin-tabs .tab').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  document.getElementById('fin-c').style.display=tab==='c'?'':'none';
+  document.getElementById('fin-f').style.display=tab==='f'?'':'none';
 });
-
-function renderFin(){ renderFinC(); renderFinF(); }
-
+function renderFin(){renderFinC();renderFinF();}
 function renderFinC(){
-  buildMTabs('fin-mtabs', state.finM, state.finY, 'fin', (m,y)=>{ state.finM=m; state.finY=y; renderFinC(); });
-  const m=state.finM, y=state.finY;
-  const venc = DB.clientes.filter(c=>getSt(c.dia,isPaid(c.id,y,m,'c'))==='vencido');
-  setHTML('fin-alerts', venc.length?`<div class="al al-danger">⚠ Vencidos em ${MESES[m]}: ${venc.map(c=>c.nome).join(', ')}</div>`:'');
-
-  const tb = document.getElementById('fin-ct');
-  tb.innerHTML = '';
-  if(!DB.clientes.length){ tb.innerHTML='<tr><td colspan="5" class="empty">Nenhum cliente</td></tr>'; }
+  buildMTabs('fin-mtabs',state.finM,state.finY,'fin',(m,y)=>{state.finM=m;state.finY=y;renderFinC();});
+  const m=state.finM,y=state.finY;
+  const venc=DB.clientes.filter(c=>getSt(c.dia,isPaid(c.id,y,m,'c'))==='vencido');
+  document.getElementById('fin-alerts').innerHTML=venc.length?`<div class="al al-danger">⚠ Vencidos em ${MESES[m]}: ${venc.map(c=>c.nome).join(', ')}</div>`:'';
+  const tb=document.getElementById('fin-ct');tb.innerHTML='';
+  if(!DB.clientes.length){tb.innerHTML='<tr><td colspan="5" class="empty">Nenhum cliente</td></tr>';}
   else DB.clientes.forEach(c=>{
-    const paid=isPaid(c.id,y,m,'c'), st=getSt(c.dia,paid);
-    const tr = document.createElement('tr');
-    tr.className = 'row-'+st;
-    tr.innerHTML = `<td style="font-weight:700">${c.nome}</td><td>${fmtR(c.valor)}</td><td>Dia ${c.dia}</td><td><span class="badge b${st.slice(0,2)}">${{pago:'Pago',pendente:'Pendente',vencido:'Vencido'}[st]}</span></td>`;
-    const tdActs = document.createElement('td');
-    const acts = el('div'); acts.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
-    const payBtn = el('button','btn btn-sm', paid?'Desmarcar':'✓ Marcar pago');
-    payBtn.addEventListener('click', ()=>{
-      DB.payments['c_'+c.id+'_'+y+'_'+m] = !DB.payments['c_'+c.id+'_'+y+'_'+m];
-      save('payments'); renderFinC(); renderPainel();
-    });
+    const paid=isPaid(c.id,y,m,'c'),st=getSt(c.dia,paid),cid=c.id;
+    const tr=document.createElement('tr');tr.className='row-'+st;
+    tr.innerHTML=`<td style="font-weight:700">${c.nome}</td><td>${fmtR(c.valor)}</td><td>Dia ${c.dia}</td><td><span class="badge b${st.slice(0,2)}">${{pago:'Pago',pendente:'Pendente',vencido:'Vencido'}[st]}</span></td>`;
+    const tdA=document.createElement('td');
+    const acts=el('div');acts.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+    const payBtn=el('button','btn btn-sm',paid?'Desmarcar':'✓ Marcar pago');
+    payBtn.onclick=async()=>{DB.payments['c_'+cid+'_'+y+'_'+m]=!DB.payments['c_'+cid+'_'+y+'_'+m];await saveDB();};
     acts.appendChild(payBtn);
-    acts.appendChild(btnEdit(()=>openClienteModal(c.id)));
-    acts.appendChild(btnDel(()=>{
-      if(!confirm(`Remover cliente "${c.nome}"?`)) return;
-      DB.clientes = DB.clientes.filter(x=>x.id!==c.id);
-      save('clientes'); renderFin(); renderEquipe(); renderPainel();
-    }));
-    tdActs.appendChild(acts);
-    tr.appendChild(tdActs);
-    tb.appendChild(tr);
+    acts.appendChild(btnEdit(()=>openClienteModal(cid)));
+    acts.appendChild(btnDel(async()=>{if(!confirm(`Remover "${c.nome}"?`))return;DB.clientes=DB.clientes.filter(x=>x.id!==cid);await saveDB();}));
+    tdA.appendChild(acts);tr.appendChild(tdA);tb.appendChild(tr);
   });
-
-  const tot=totC(), pago=DB.clientes.filter(c=>isPaid(c.id,y,m,'c')).reduce((a,c)=>a+Number(c.valor),0);
-  setHTML('fin-totals',
-    `<div class="metric"><div class="ml">Total ${MESES[m].slice(0,3)}</div><div class="mv" style="font-size:17px">${fmtR(tot)}</div></div>`+
-    `<div class="metric"><div class="ml">Recebido</div><div class="mv" style="font-size:17px;color:#3b6d11">${fmtR(pago)}</div></div>`+
-    `<div class="metric"><div class="ml">Pendente</div><div class="mv" style="font-size:17px;color:#854f0b">${fmtR(tot-pago)}</div></div>`
-  );
+  const tot=totC(),pago=DB.clientes.filter(c=>isPaid(c.id,y,m,'c')).reduce((a,c)=>a+Number(c.valor),0);
+  document.getElementById('fin-totals').innerHTML=`<div class="metric"><div class="ml">Total ${MESES[m].slice(0,3)}</div><div class="mv" style="font-size:17px">${fmtR(tot)}</div></div><div class="metric"><div class="ml">Recebido</div><div class="mv" style="font-size:17px;color:#3b6d11">${fmtR(pago)}</div></div><div class="metric"><div class="ml">Pendente</div><div class="mv" style="font-size:17px;color:#854f0b">${fmtR(tot-pago)}</div></div>`;
 }
-
 function renderFinF(){
-  buildMTabs('fr-mtabs', state.frM, state.frY, 'fr', (m,y)=>{ state.frM=m; state.frY=y; renderFinF(); });
-  const m=state.frM, y=state.frY;
-  const tb = document.getElementById('fin-ft');
-  tb.innerHTML = '';
-  if(!DB.freelas.length){ tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum freela</td></tr>'; return; }
+  buildMTabs('fr-mtabs',state.frM,state.frY,'fr',(m,y)=>{state.frM=m;state.frY=y;renderFinF();});
+  const m=state.frM,y=state.frY;
+  const tb=document.getElementById('fin-ft');tb.innerHTML='';
+  if(!DB.freelas.length){tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum freela</td></tr>';return;}
   DB.freelas.forEach(f=>{
-    const paid=isPaid(f.id,y,m,'f'), st=getSt(f.dia,paid);
-    const tr = document.createElement('tr');
-    tr.className = 'row-'+st;
-    tr.innerHTML = `<td style="font-weight:700">${f.nome}</td><td>${f.funcao}</td><td>${fmtR(f.valor)}</td><td>Dia ${f.dia}</td><td><span class="badge b${st.slice(0,2)}">${{pago:'Pago',pendente:'Pendente',vencido:'Vencido'}[st]}</span></td>`;
-    const tdActs = document.createElement('td');
-    const acts = el('div'); acts.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
-    const payBtn = el('button','btn btn-sm', paid?'Desmarcar':'✓ Marcar pago');
-    payBtn.addEventListener('click', ()=>{
-      DB.payments['f_'+f.id+'_'+y+'_'+m] = !DB.payments['f_'+f.id+'_'+y+'_'+m];
-      save('payments'); renderFinF(); renderPainel();
-    });
+    const paid=isPaid(f.id,y,m,'f'),st=getSt(f.dia,paid),fid=f.id;
+    const tr=document.createElement('tr');tr.className='row-'+st;
+    tr.innerHTML=`<td style="font-weight:700">${f.nome}</td><td>${f.funcao}</td><td>${fmtR(f.valor)}</td><td>Dia ${f.dia}</td><td><span class="badge b${st.slice(0,2)}">${{pago:'Pago',pendente:'Pendente',vencido:'Vencido'}[st]}</span></td>`;
+    const tdA=document.createElement('td');
+    const acts=el('div');acts.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+    const payBtn=el('button','btn btn-sm',paid?'Desmarcar':'✓ Marcar pago');
+    payBtn.onclick=async()=>{DB.payments['f_'+fid+'_'+y+'_'+m]=!DB.payments['f_'+fid+'_'+y+'_'+m];await saveDB();};
     acts.appendChild(payBtn);
-    acts.appendChild(btnEdit(()=>openFreelaModal(f.id)));
-    acts.appendChild(btnDel(()=>{
-      if(!confirm('Remover?')) return;
-      DB.freelas = DB.freelas.filter(x=>x.id!==f.id);
-      save('freelas'); renderFin(); renderEquipe(); renderPainel();
-    }));
-    tdActs.appendChild(acts);
-    tr.appendChild(tdActs);
-    tb.appendChild(tr);
+    acts.appendChild(btnEdit(()=>openFreelaModal(fid)));
+    acts.appendChild(btnDel(async()=>{if(!confirm('Remover?'))return;DB.freelas=DB.freelas.filter(x=>x.id!==fid);await saveDB();}));
+    tdA.appendChild(acts);tr.appendChild(tdA);tb.appendChild(tr);
   });
 }
 
-// ═══════════════════════════════════════════════════
-// EQUIPE
-// ═══════════════════════════════════════════════════
+// ═══ EQUIPE ══════════════════════════════════════
 function renderEquipe(){
-  document.getElementById('eq-bruto').textContent = fmtR(totC());
-  document.getElementById('eq-gastos').textContent = fmtR(totGastos());
-  document.getElementById('eq-liquido').textContent = fmtR(totLiq());
-  document.getElementById('eq-tc').textContent = fmtR(totC());
-  document.getElementById('eq-tf').textContent = fmtR(totF());
-
-  const eqC = document.getElementById('eq-c');
-  eqC.innerHTML = '';
-  if(!DB.clientes.length){ eqC.innerHTML='<div class="empty">Nenhum cliente</div>'; }
+  document.getElementById('eq-bruto').textContent=fmtR(totC());
+  document.getElementById('eq-gastos').textContent=fmtR(totGastos());
+  document.getElementById('eq-liquido').textContent=fmtR(totLiq());
+  document.getElementById('eq-tc').textContent=fmtR(totC());
+  document.getElementById('eq-tf').textContent=fmtR(totF());
+  const eqC=document.getElementById('eq-c');eqC.innerHTML='';
+  if(!DB.clientes.length){eqC.innerHTML='<div class="empty">Nenhum cliente</div>';}
   else DB.clientes.forEach(c=>{
-    const card = el('div','tcard');
-    const info = el('div');
-    info.innerHTML = `<div style="font-size:13px;font-weight:700">${c.nome}</div><div style="font-size:11px;color:#888">Vence dia ${c.dia}</div>`;
-    const acts = el('div'); acts.style.cssText='display:flex;align-items:center;gap:8px';
-    const val = el('span','',fmtR(c.valor)); val.style.cssText='font-size:14px;font-weight:700;color:#1D9E75';
+    const card=el('div','tcard');
+    const info=el('div');info.innerHTML=`<div style="font-size:13px;font-weight:700">${c.nome}</div><div style="font-size:11px;color:#888">Vence dia ${c.dia}</div>`;
+    const acts=el('div');acts.style.cssText='display:flex;align-items:center;gap:8px';
+    const val=el('span','',fmtR(c.valor));val.style.cssText='font-size:14px;font-weight:700;color:#1D9E75';
     acts.appendChild(val);
     acts.appendChild(btnEdit(()=>openClienteModal(c.id)));
-    acts.appendChild(btnDel(()=>{
-      if(!confirm(`Remover "${c.nome}"?`)) return;
-      DB.clientes = DB.clientes.filter(x=>x.id!==c.id);
-      save('clientes'); renderEquipe(); renderFin(); renderPainel();
-    }));
-    card.appendChild(info); card.appendChild(acts);
-    eqC.appendChild(card);
+    acts.appendChild(btnDel(async()=>{if(!confirm(`Remover "${c.nome}"?`))return;DB.clientes=DB.clientes.filter(x=>x.id!==c.id);await saveDB();}));
+    card.appendChild(info);card.appendChild(acts);eqC.appendChild(card);
   });
-
-  const eqF = document.getElementById('eq-f');
-  eqF.innerHTML = '';
-  if(!DB.freelas.length){ eqF.innerHTML='<div class="empty">Nenhum freela</div>'; }
+  const eqF=document.getElementById('eq-f');eqF.innerHTML='';
+  if(!DB.freelas.length){eqF.innerHTML='<div class="empty">Nenhum freela</div>';}
   else DB.freelas.forEach(f=>{
-    const card = el('div','tcard');
-    const info = el('div');
-    info.innerHTML = `<div style="font-size:13px;font-weight:700">${f.nome} <span style="font-size:11px;font-weight:400;color:#888">${f.funcao}</span></div><div style="font-size:11px;color:#888">Paga dia ${f.dia}</div>`;
-    const acts = el('div'); acts.style.cssText='display:flex;align-items:center;gap:8px';
-    const val = el('span','',fmtR(f.valor)); val.style.cssText='font-size:14px;font-weight:700;color:#a32d2d';
+    const card=el('div','tcard');
+    const info=el('div');info.innerHTML=`<div style="font-size:13px;font-weight:700">${f.nome} <span style="font-size:11px;font-weight:400;color:#888">${f.funcao}</span></div><div style="font-size:11px;color:#888">Paga dia ${f.dia}</div>`;
+    const acts=el('div');acts.style.cssText='display:flex;align-items:center;gap:8px';
+    const val=el('span','',fmtR(f.valor));val.style.cssText='font-size:14px;font-weight:700;color:#a32d2d';
     acts.appendChild(val);
     acts.appendChild(btnEdit(()=>openFreelaModal(f.id)));
-    acts.appendChild(btnDel(()=>{
-      if(!confirm('Remover?')) return;
-      DB.freelas = DB.freelas.filter(x=>x.id!==f.id);
-      save('freelas'); renderEquipe(); renderFin(); renderPainel();
-    }));
-    card.appendChild(info); card.appendChild(acts);
-    eqF.appendChild(card);
+    acts.appendChild(btnDel(async()=>{if(!confirm('Remover?'))return;DB.freelas=DB.freelas.filter(x=>x.id!==f.id);await saveDB();}));
+    card.appendChild(info);card.appendChild(acts);eqF.appendChild(card);
   });
 }
 
-// ═══════════════════════════════════════════════════
-// IA
-// ═══════════════════════════════════════════════════
+// ═══ IA ══════════════════════════════════════════
 function renderIA(){
-  buildMTabs('ia-mtabs', state.iaM, state.iaY, 'ia', (m,y)=>{ state.iaM=m; state.iaY=y; renderIA(); });
-  document.getElementById('ia-total').textContent = fmtR(totIA());
-  document.getElementById('ia-count').textContent = DB.ias.length;
-  const list = document.getElementById('ia-list');
-  list.innerHTML = '';
-  if(!DB.ias.length){ list.innerHTML='<div class="empty">Nenhuma IA cadastrada</div>'; return; }
+  buildMTabs('ia-mtabs',state.iaM,state.iaY,'ia',(m,y)=>{state.iaM=m;state.iaY=y;renderIA();});
+  document.getElementById('ia-total').textContent=fmtR(totIA());
+  document.getElementById('ia-count').textContent=DB.ias.length;
+  const list=document.getElementById('ia-list');list.innerHTML='';
+  if(!DB.ias.length){list.innerHTML='<div class="empty">Nenhuma IA cadastrada</div>';return;}
   DB.ias.forEach(ia=>{
-    const card = el('div','tcard');
-    const info = el('div');
-    info.innerHTML = `<div style="font-size:14px;font-weight:700">${ia.nome}</div><div style="font-size:11px;color:#888">${ia.cat}</div>`;
-    const acts = el('div'); acts.style.cssText='display:flex;align-items:center;gap:8px';
-    const val = el('span','',fmtR(ia.valor)+'/mês'); val.style.cssText='font-size:14px;font-weight:700;color:#a32d2d';
+    const card=el('div','tcard');
+    const info=el('div');info.innerHTML=`<div style="font-size:14px;font-weight:700">${ia.nome}</div><div style="font-size:11px;color:#888">${ia.cat}</div>`;
+    const acts=el('div');acts.style.cssText='display:flex;align-items:center;gap:8px';
+    const val=el('span','',fmtR(ia.valor)+'/mês');val.style.cssText='font-size:14px;font-weight:700;color:#a32d2d';
     acts.appendChild(val);
     acts.appendChild(btnEdit(()=>openIAModal(ia.id)));
-    acts.appendChild(btnDel(()=>{
-      if(!confirm('Remover?')) return;
-      DB.ias = DB.ias.filter(x=>x.id!==ia.id);
-      save('ias'); renderIA(); renderEquipe(); renderPainel();
-    }));
-    card.appendChild(info); card.appendChild(acts);
-    list.appendChild(card);
+    acts.appendChild(btnDel(async()=>{if(!confirm('Remover?'))return;DB.ias=DB.ias.filter(x=>x.id!==ia.id);await saveDB();}));
+    card.appendChild(info);card.appendChild(acts);list.appendChild(card);
   });
 }
-
-// ═══════════════════════════════════════════════════
-// INIT
-// ═══════════════════════════════════════════════════
-renderPainel();
-renderKanban();
-renderAgenda();
-renderVidSemana();
 </script>
 </body>
 </html>
