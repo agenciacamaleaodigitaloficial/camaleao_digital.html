@@ -175,7 +175,8 @@ tr.row-pendente td{background:#fffdf5}
     <button class="nb" data-page="kanban">⊞ Kanban</button>
     <button class="nb" data-page="videos">▶ Vídeos</button>
     <button class="nb" data-page="financeiro">$ Financeiro</button>
-    <button class="nb" data-page="equipe">☺ Equipe</button>
+    <button class="nb" data-page="equipe">☺ Equipe & Clientes</button>
+    <button class="nb" data-page="freelas">👥 Freelas</button>
     <button class="nb" data-page="ia">⚒ Gastos IA</button>
   </div>
 </div>
@@ -189,9 +190,14 @@ tr.row-pendente td{background:#fffdf5}
   <div class="fin-banner">
     <div style="font-size:13px;opacity:.8">Resumo — <span id="painel-mes-label"></span></div>
     <div class="fbrow">
-      <div class="fbi"><div class="fbi-l">Clientes (bruto)</div><div class="fbi-v" id="ps-bruto">R$ 0</div></div>
+      <div class="fbi"><div class="fbi-l">Clientes mensais</div><div class="fbi-v" id="ps-mensais">R$ 0</div></div>
+      <div class="fbi"><div class="fbi-l">Freelas ativos</div><div class="fbi-v" id="ps-freelas">R$ 0</div></div>
+      <div class="fbi"><div class="fbi-l">Total bruto</div><div class="fbi-v" id="ps-bruto">R$ 0</div></div>
+    </div>
+    <div class="fbrow" style="margin-top:.5rem;padding-top:.5rem;border-top:1px solid rgba(255,255,255,.2)">
       <div class="fbi"><div class="fbi-l">Equipe + IA</div><div class="fbi-v" id="ps-gastos">R$ 0</div></div>
       <div class="fbi"><div class="fbi-l">Líquido (seu)</div><div class="fbi-v" id="ps-liquido">R$ 0</div></div>
+      <div class="fbi"></div>
     </div>
   </div>
   <div class="g4" id="painel-metrics"></div>
@@ -264,7 +270,13 @@ tr.row-pendente td{background:#fffdf5}
     </div>
     <div class="mtabs" id="fin-mtabs"></div>
     <div id="fin-alerts"></div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Cliente</th><th>Mensalidade</th><th>Vencimento</th><th>Status</th><th>Ações</th></tr></thead><tbody id="fin-ct"></tbody></table></div>
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr>
+  <th class="sortable" data-sort-table="c" data-sort-col="nome" style="cursor:pointer;user-select:none">Cliente <span id="sort-c-nome">↕</span></th>
+  <th class="sortable" data-sort-table="c" data-sort-col="valor" style="cursor:pointer;user-select:none">Mensalidade <span id="sort-c-valor">↕</span></th>
+  <th class="sortable" data-sort-table="c" data-sort-col="dia" style="cursor:pointer;user-select:none">Vencimento <span id="sort-c-dia">↕</span></th>
+  <th class="sortable" data-sort-table="c" data-sort-col="status" style="cursor:pointer;user-select:none">Status <span id="sort-c-status">↕</span></th>
+  <th>Ações</th>
+</tr></thead><tbody id="fin-ct"></tbody></table></div>
     <div class="card"><div class="g3" id="fin-totals"></div></div>
   </div>
   <div id="fin-f" style="display:none">
@@ -273,32 +285,39 @@ tr.row-pendente td{background:#fffdf5}
       <button class="btn btn-primary" id="btn-new-freela">+ Novo freela</button>
     </div>
     <div class="mtabs" id="fr-mtabs"></div>
-    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr><th>Nome</th><th>Função</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Ações</th></tr></thead><tbody id="fin-ft"></tbody></table></div>
+    <div class="card" style="padding:0;overflow:hidden"><table><thead><tr>
+  <th class="sortable" data-sort-table="f" data-sort-col="nome" style="cursor:pointer;user-select:none">Nome <span id="sort-f-nome">↕</span></th>
+  <th>Função</th>
+  <th class="sortable" data-sort-table="f" data-sort-col="valor" style="cursor:pointer;user-select:none">Valor <span id="sort-f-valor">↕</span></th>
+  <th class="sortable" data-sort-table="f" data-sort-col="dia" style="cursor:pointer;user-select:none">Vencimento <span id="sort-f-dia">↕</span></th>
+  <th class="sortable" data-sort-table="f" data-sort-col="status" style="cursor:pointer;user-select:none">Status <span id="sort-f-status">↕</span></th>
+  <th>Ações</th>
+</tr></thead><tbody id="fin-ft"></tbody></table></div>
   </div>
 </div>
 
 <div class="page" id="page-equipe">
-  <h2>Equipe</h2>
+  <h2>Equipe & Clientes</h2>
   <div class="g2">
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.875rem">
-        <h3 style="margin:0">Clientes</h3>
+        <h3 style="margin:0">Clientes mensais</h3>
         <button class="btn btn-primary btn-sm" id="btn-new-cliente-eq">+ Add</button>
       </div>
       <div id="eq-c"></div>
       <div style="border-top:1px solid #f0f0eb;margin-top:.875rem;padding-top:.875rem">
-        <div style="font-size:12px;color:#666">Total/mês</div>
+        <div style="font-size:12px;color:#666">Total recebido/mês</div>
         <div style="font-size:20px;font-weight:700;color:#1D9E75" id="eq-tc">R$ 0</div>
       </div>
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.875rem">
-        <h3 style="margin:0">Equipe</h3>
-        <button class="btn btn-primary btn-sm" id="btn-new-freela-eq">+ Add</button>
+        <h3 style="margin:0">Equipe (gastos)</h3>
+        <button class="btn btn-primary btn-sm" id="btn-new-equipe-member">+ Add membro</button>
       </div>
       <div id="eq-f"></div>
       <div style="border-top:1px solid #f0f0eb;margin-top:.875rem;padding-top:.875rem">
-        <div style="font-size:12px;color:#666">Total gasto/mês</div>
+        <div style="font-size:12px;color:#666">Total gasto com equipe/mês</div>
         <div style="font-size:20px;font-weight:700;color:#a32d2d" id="eq-tf">R$ 0</div>
       </div>
     </div>
@@ -310,6 +329,35 @@ tr.row-pendente td{background:#fffdf5}
       <div class="fbi"><div class="fbi-l">Equipe + IAs</div><div class="fbi-v" id="eq-gastos">R$ 0</div></div>
       <div class="fbi"><div class="fbi-l">Líquido</div><div class="fbi-v" id="eq-liquido">R$ 0</div></div>
     </div>
+  </div>
+</div>
+
+<div class="page" id="page-freelas">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;flex-wrap:wrap;gap:8px">
+    <h2 style="margin:0">Freelas (trabalhos avulsos)</h2>
+    <button class="btn btn-primary" id="btn-new-freela-page">+ Novo trabalho</button>
+  </div>
+  <div class="tab-row" id="freelas-tabs">
+    <button class="tab active" data-ftab2="ativos">Em andamento</button>
+    <button class="tab" data-ftab2="concluidos">Concluídos</button>
+    <button class="tab" data-ftab2="todos">Todos</button>
+  </div>
+  <div class="g3" id="freelas-summary"></div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table>
+      <thead><tr>
+        <th>Cliente</th>
+        <th>Tipo de trabalho</th>
+        <th>Valor</th>
+        <th>Início</th>
+        <th>Prazo</th>
+        <th>Pagamento</th>
+        <th>Tipo</th>
+        <th>Status</th>
+        <th>Ações</th>
+      </tr></thead>
+      <tbody id="freelas-page-table"></tbody>
+    </table>
   </div>
 </div>
 
@@ -350,9 +398,44 @@ tr.row-pendente td{background:#fffdf5}
 </div></div>
 
 <div class="overlay" id="modal-freela"><div class="mbox">
-  <div class="mhead"><h3 id="mf-title">Novo freela</h3><button class="btn btn-icon" id="mf-close">✕</button></div>
-  <div class="irow"><div class="field"><label>Nome</label><input type="text" id="f-nome"></div><div class="field"><label>Função</label><select id="f-funcao"><option>Editor</option><option>Designer</option><option>Redator</option><option>Outro</option></select></div></div>
-  <div class="irow"><div class="field"><label>Valor (R$)</label><input type="number" id="f-valor" placeholder="0" step="0.01"></div><div class="field"><label>Dia pagamento</label><input type="number" id="f-dia" min="1" max="31" placeholder="5"></div></div>
+  <div class="mhead"><h3 id="mf-title">Novo trabalho freela</h3><button class="btn btn-icon" id="mf-close">✕</button></div>
+  <input type="hidden" id="f-eid">
+  <div class="irow">
+    <div class="field"><label>Nome do cliente</label><input type="text" id="f-nome" placeholder="Ex: João Silva"></div>
+    <div class="field"><label>Tipo de trabalho</label>
+      <select id="f-funcao">
+        <option>Criação de site</option>
+        <option>Manutenção de site</option>
+        <option>Criação de app</option>
+        <option>Pacote de vídeos</option>
+        <option>Vídeo avulso</option>
+        <option>Criação de arte</option>
+        <option>Gestão de redes</option>
+        <option>Outro</option>
+      </select>
+    </div>
+  </div>
+  <div class="irow">
+    <div class="field"><label>Valor (R$)</label><input type="number" id="f-valor" placeholder="0" step="0.01"></div>
+    <div class="field"><label>Trabalho contínuo?</label>
+      <select id="f-continuo"><option value="nao">Não (avulso)</option><option value="sim">Sim (recorrente)</option></select>
+    </div>
+  </div>
+  <div class="irow">
+    <div class="field"><label>Data de início</label><input type="date" id="f-inicio"></div>
+    <div class="field"><label>Prazo / Entrega</label><input type="date" id="f-prazo"></div>
+  </div>
+  <div class="irow">
+    <div class="field"><label>Contato (tel/email)</label><input type="text" id="f-contato" placeholder="Opcional"></div>
+    <div class="field"><label>Status</label>
+      <select id="f-status"><option value="andamento">Em andamento</option><option value="concluido">Concluído</option><option value="aguardando">Aguardando</option></select>
+    </div>
+  </div>
+  <div class="irow">
+    <div class="field"><label>Data de pagamento</label><input type="date" id="f-datapag" placeholder="Quando receberá"></div>
+    <div class="field"><label>Dia recorrente (se mensal)</label><input type="number" id="f-diapag" min="1" max="31" placeholder="Ex: 10"></div>
+  </div>
+  <div class="field" style="margin-bottom:1rem"><label>Observação</label><textarea id="f-obs" rows="2" placeholder="Detalhes do trabalho..."></textarea></div>
   <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="mf-cancel">Cancelar</button><button class="btn btn-primary" id="mf-save">Salvar</button></div>
 </div></div>
 
@@ -361,6 +444,31 @@ tr.row-pendente td{background:#fffdf5}
   <div class="irow"><div class="field"><label>Nome</label><input type="text" id="ia-nome" placeholder="Ex: ChatGPT Plus"></div></div>
   <div class="irow"><div class="field"><label>Valor (R$)/mês</label><input type="number" id="ia-valor" placeholder="0" step="0.01"></div><div class="field"><label>Categoria</label><select id="ia-cat"><option>Texto/Chat</option><option>Imagem</option><option>Vídeo</option><option>Áudio</option><option>Automação</option><option>Outro</option></select></div></div>
   <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="mia-cancel">Cancelar</button><button class="btn btn-primary" id="mia-save">Salvar</button></div>
+</div></div>
+
+<div class="overlay" id="modal-edit-post"><div class="mbox">
+  <div class="mhead"><h3>Editar post</h3><button class="btn btn-icon" id="mep-close">✕</button></div>
+  <input type="hidden" id="ep-id">
+  <div class="irow"><div class="field"><label>Cliente</label><select id="ep-cliente"></select></div><div class="field"><label>Tipo</label><select id="ep-tipo"><option>Reels</option><option>Post único</option><option>Carrossel</option></select></div></div>
+  <div class="irow"><div class="field"><label>Data</label><input type="date" id="ep-data"></div><div class="field"><label>Produtor</label><select id="ep-produtor"><option>Editor</option><option>Eu</option></select></div></div>
+  <div class="field" style="margin-bottom:1rem"><label>Observação</label><textarea id="ep-obs" rows="2"></textarea></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="mep-cancel">Cancelar</button><button class="btn btn-primary" id="mep-save">Salvar alterações</button></div>
+</div></div>
+
+<div class="overlay" id="modal-equipe-member"><div class="mbox">
+  <div class="mhead"><h3 id="mem-title">Novo membro da equipe</h3><button class="btn btn-icon" id="mem-close">✕</button></div>
+  <input type="hidden" id="mem-eid">
+  <div class="irow">
+    <div class="field"><label>Nome</label><input type="text" id="mem-nome" placeholder="Ex: Mateus"></div>
+    <div class="field"><label>Função</label>
+      <select id="mem-funcao"><option>Editor</option><option>Designer</option><option>Redator</option><option>Social Media</option><option>Outro</option></select>
+    </div>
+  </div>
+  <div class="irow">
+    <div class="field"><label>Valor mensal (R$)</label><input type="number" id="mem-valor" placeholder="0" step="0.01"></div>
+    <div class="field"><label>Dia de pagamento</label><input type="number" id="mem-dia" min="1" max="31" placeholder="5"></div>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="mem-cancel">Cancelar</button><button class="btn btn-primary" id="mem-save">Salvar</button></div>
 </div></div>
 
 <div class="overlay" id="modal-meta"><div class="mbox">
@@ -397,7 +505,7 @@ const ETAPA_TX = ['#5f5e5a','#185fa5','#854f0b','#534ab7','#0f6e56'];
 const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-let DB = { posts:[], videos:[], clientes:[], freelas:[], ias:[], payments:{}, meta:{s:0,m:0} };
+let DB = { posts:[], videos:[], clientes:[], freelas:[], equipe:[], ias:[], payments:{}, meta:{s:0,m:0} };
 let saving = false;
 
 // Sync status
@@ -441,6 +549,7 @@ try {
       DB.videos   = data.videos   || [];
       DB.clientes = data.clientes || [];
       DB.freelas  = data.freelas  || [];
+      DB.equipe   = data.equipe   || [];
       DB.ias      = data.ias      || [];
       DB.payments = data.payments || {};
       DB.meta     = data.meta     || {s:0,m:0};
@@ -465,6 +574,134 @@ function renderAll() {
   renderKanban();
   renderAgenda();
   renderVidSemana();
+  if(document.getElementById('page-freelas').classList.contains('active')) renderFreelasPage();
+}
+
+// ═══ FREELAS TABS ════════════════════════════════
+document.getElementById('freelas-tabs')?.addEventListener('click', e=>{
+  const btn = e.target.closest('.tab');
+  if(!btn) return;
+  freelasFilter = btn.dataset.ftab2;
+  document.querySelectorAll('#freelas-tabs .tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderFreelasPage();
+});
+
+// ═══ SORT STATE ══════════════════════════════════
+let sortC = {col:'dia', dir:1};
+let sortF = {col:'dia', dir:1};
+
+function sortFinC(col){
+  if(sortC.col===col) sortC.dir*=-1; else {sortC.col=col;sortC.dir=1;}
+  renderFinC();
+}
+function sortFinF(col){
+  if(sortF.col===col) sortF.dir*=-1; else {sortF.col=col;sortF.dir=1;}
+  renderFinF();
+}
+function updateSortIcons(prefix, sortObj){
+  ['nome','valor','dia','status'].forEach(c=>{
+    const el=document.getElementById('sort-'+prefix+'-'+c);
+    if(el) el.textContent = sortObj.col===c ? (sortObj.dir===1?'↑':'↓') : '↕';
+  });
+}
+function getSortVal(item, col, m, y, type){
+  if(col==='status'){
+    const paid=isPaid(item.id,y,m,type);
+    const st=getSt(item.dia,paid);
+    return st==='vencido'?0:st==='pendente'?1:2;
+  }
+  if(col==='valor') return Number(item.valor);
+  if(col==='dia') return Number(item.dia);
+  return (item[col]||'').toLowerCase();
+}
+
+// ═══ EDIT POST MODAL ═════════════════════════════
+function openEditPostModal(pid){
+  const p = DB.posts.find(x=>x.id===pid);
+  if(!p) return;
+  document.getElementById('ep-id').value = pid;
+  // populate cliente select
+  const sel = document.getElementById('ep-cliente');
+  sel.innerHTML = '';
+  DB.clientes.forEach(c=>{
+    const o=document.createElement('option');
+    o.value=c.nome; o.textContent=c.nome;
+    sel.appendChild(o);
+  });
+  sel.value = p.cliente;
+  document.getElementById('ep-tipo').value = p.tipo;
+  document.getElementById('ep-data').value = p.data;
+  document.getElementById('ep-produtor').value = p.produtor;
+  document.getElementById('ep-obs').value = p.obs||'';
+  openModal('modal-edit-post');
+}
+
+// ═══ FREELAS PAGE ═════════════════════════════════
+let freelasPageSort = {col:'nome', dir:1};
+
+let freelasFilter = 'ativos';
+
+function renderFreelasPage(){
+  const tb = document.getElementById('freelas-page-table');
+  const summary = document.getElementById('freelas-summary');
+  if(!tb) return;
+
+  // Summary cards
+  const total = DB.freelas.length;
+  const ativos = DB.freelas.filter(f=>f.status==='andamento').length;
+  const concluidos = DB.freelas.filter(f=>f.status==='concluido').length;
+  const totalValor = DB.freelas.reduce((a,f)=>a+Number(f.valor),0);
+  const recorrentes = DB.freelas.filter(f=>f.continuo==='sim'&&f.status!=='concluido');
+  const recorrenteVal = recorrentes.reduce((a,f)=>a+Number(f.valor),0);
+  if(summary) summary.innerHTML =
+    `<div class="metric"><div class="ml">Em andamento</div><div class="mv c-warn">${ativos}</div></div>`+
+    `<div class="metric"><div class="ml">Recorrentes/mês</div><div class="mv" style="font-size:16px;color:#1D9E75">${fmtR(recorrenteVal)}</div></div>`+
+    `<div class="metric"><div class="ml">Concluídos</div><div class="mv c-ok">${concluidos}</div></div>`+
+    `<div class="metric"><div class="ml">Valor total ativo</div><div class="mv" style="font-size:16px">${fmtR(totalValor)}</div></div>`;
+
+  // Filter
+  let lista = [...DB.freelas];
+  if(freelasFilter==='ativos') lista = lista.filter(f=>f.status==='andamento'||f.status==='aguardando');
+  else if(freelasFilter==='concluidos') lista = lista.filter(f=>f.status==='concluido');
+
+  tb.innerHTML = '';
+  if(!lista.length){
+    tb.innerHTML='<tr><td colspan="9" class="empty">Nenhum trabalho encontrado</td></tr>';
+    return;
+  }
+
+  const hoje = todayStr();
+  lista.forEach(f=>{
+    const atrasado = f.prazo && f.prazo < hoje && f.status !== 'concluido';
+    const tr = document.createElement('tr');
+    if(atrasado) tr.style.background='#fff5f5';
+
+    // Status badge
+    const stMap = {andamento:'<span class="badge" style="background:#e6f1fb;color:#185fa5">Em andamento</span>',
+                   concluido:'<span class="badge bpago">Concluído</span>',
+                   aguardando:'<span class="badge bpendente">Aguardando</span>'};
+    const stBadge = stMap[f.status]||f.status;
+    const contBadge = f.continuo==='sim' ?
+      '<span class="badge" style="background:#eeedfe;color:#534ab7">Recorrente</span>' :
+      '<span class="badge" style="background:#f0f0eb;color:#666">Avulso</span>';
+    const prazoStr = f.prazo ? (atrasado ? `<span style="color:#a32d2d;font-weight:700">⚠ ${fmt(f.prazo)}</span>` : fmt(f.prazo)) : '—';
+    // Payment info
+    let pagStr = '—';
+    if(f.continuo==='sim' && f.diapag) pagStr = `<span style="color:#0f6e56;font-weight:600">Dia ${f.diapag}/mês</span>`;
+    else if(f.datapag) pagStr = fmt(f.datapag);
+
+    tr.innerHTML = `<td style="font-weight:700">${f.nome}</td><td>${f.funcao}</td><td>${fmtR(f.valor)}</td><td>${fmt(f.inicio)||'—'}</td><td>${prazoStr}</td><td>${pagStr}</td><td>${contBadge}</td><td>${stBadge}</td>`;
+    const tdA = document.createElement('td');
+    const acts = el('div'); acts.style.cssText='display:flex;gap:6px;align-items:center';
+    acts.appendChild(btnEdit(()=>openFreelaModal(f.id)));
+    acts.appendChild(btnDel(async()=>{
+      if(!confirm(`Remover trabalho de "${f.nome}"?`))return;
+      DB.freelas=DB.freelas.filter(x=>x.id!==f.id);
+      await saveDB();
+    }));
+    tdA.appendChild(acts); tr.appendChild(tdA); tb.appendChild(tr);
+  });
 }
 
 // ═══ UTILS ═══════════════════════════════════════
@@ -476,7 +713,7 @@ let state = {
   panM:new Date().getMonth(), panY:new Date().getFullYear(),
   vidM:new Date().getMonth(), vidY:new Date().getFullYear(),
   tabOff:{fin:0,fr:0,ia:0,pan:0,vid:0},
-  editClienteId:null, editFreelaId:null, editIAId:null,
+  editClienteId:null, editFreelaId:null, editIAId:null, editEquipeId:null,
   currentVidTab:'semana'
 };
 
@@ -489,8 +726,24 @@ function fmtFull(s){ if(!s)return ''; const[y,mo,d]=s.split('-'); return d+'/'+m
 function fmtR(v){ return 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function isPaid(id,y,m,t){ return !!DB.payments[t+'_'+id+'_'+y+'_'+m]; }
 function getSt(dia,paid){ if(paid)return 'pago'; return new Date().getDate()>dia?'vencido':'pendente'; }
-function totC(){ return DB.clientes.reduce((a,c)=>a+Number(c.valor),0); }
-function totF(){ return DB.freelas.reduce((a,f)=>a+Number(f.valor),0); }
+function totC(){
+  // Clientes mensais
+  const mensais = DB.clientes.reduce((a,c)=>a+Number(c.valor),0);
+  // Freelas: recorrentes (continuo=sim) sempre somam; avulsos somam se status!=concluido
+  const freelas = DB.freelas.reduce((a,f)=>{
+    if(f.continuo==='sim') return a+Number(f.valor);
+    if(f.status==='andamento'||f.status==='aguardando') return a+Number(f.valor);
+    return a;
+  },0);
+  return mensais + freelas;
+}
+function totCSoMensais(){ return DB.clientes.reduce((a,c)=>a+Number(c.valor),0); }
+function totFreelasAtivos(){ return DB.freelas.reduce((a,f)=>{
+  if(f.continuo==='sim') return a+Number(f.valor);
+  if(f.status==='andamento'||f.status==='aguardando') return a+Number(f.valor);
+  return a;
+},0); }
+function totF(){ return (DB.equipe||[]).reduce((a,m)=>a+Number(m.valor),0); }
 function totIA(){ return DB.ias.reduce((a,x)=>a+Number(x.valor),0); }
 function totGastos(){ return totF()+totIA(); }
 function totLiq(){ return totC()-totGastos(); }
@@ -539,6 +792,16 @@ function buildMTabs(containerId, selM, selY, groupKey, onSelect){
 }
 
 // ═══ NAV ═════════════════════════════════════════
+// ═══ SORT DELEGATION (fixes onclick in module script) ════════════
+document.addEventListener('click', e=>{
+  const th = e.target.closest('.sortable');
+  if(!th) return;
+  const table = th.dataset.sortTable;
+  const col = th.dataset.sortCol;
+  if(table==='c'){ sortFinC(col); }
+  else if(table==='f'){ sortFinF(col); }
+});
+
 document.getElementById('hamburger-btn').addEventListener('click', ()=>{
   document.getElementById('mobile-nav').classList.toggle('open');
 });
@@ -553,7 +816,7 @@ document.getElementById('main-nav').addEventListener('click', e=>{
   nb.classList.add('active');
   // Close mobile menu
   document.getElementById('mobile-nav').classList.remove('open');
-  ({painel:renderPainel,agenda:renderAgenda,kanban:renderKanban,videos:renderVid,financeiro:renderFin,equipe:renderEquipe,ia:renderIA})[page]?.();
+  ({painel:renderPainel,agenda:renderAgenda,kanban:renderKanban,videos:renderVid,financeiro:renderFin,equipe:renderEquipe,freelas:renderFreelasPage,ia:renderIA})[page]?.();
 });
 
 // ═══ MODALS ══════════════════════════════════════
@@ -632,23 +895,86 @@ document.getElementById('mc-save').onclick = async ()=>{
   await saveDB();
 };
 
-// ═══ FREELA MODAL ════════════════════════════════
+// ═══ FREELA (trabalho avulso) MODAL ══════════════════════════════
 function openFreelaModal(editId){
-  state.editFreelaId=editId||null;
-  if(editId){ const f=DB.freelas.find(x=>x.id===editId); document.getElementById('mf-title').textContent='Editar freela'; document.getElementById('f-nome').value=f.nome; document.getElementById('f-funcao').value=f.funcao; document.getElementById('f-valor').value=f.valor; document.getElementById('f-dia').value=f.dia; }
-  else { document.getElementById('mf-title').textContent='Novo freela'; document.getElementById('f-nome').value=''; document.getElementById('f-valor').value=''; document.getElementById('f-dia').value=''; }
+  state.editFreelaId = editId||null;
+  const f = editId ? DB.freelas.find(x=>x.id===editId) : null;
+  document.getElementById('mf-title').textContent = f ? 'Editar trabalho' : 'Novo trabalho freela';
+  document.getElementById('f-nome').value    = f?.nome||'';
+  document.getElementById('f-funcao').value  = f?.funcao||'Criação de site';
+  document.getElementById('f-valor').value   = f?.valor||'';
+  document.getElementById('f-continuo').value= f?.continuo||'nao';
+  document.getElementById('f-inicio').value  = f?.inicio||todayStr();
+  document.getElementById('f-prazo').value   = f?.prazo||'';
+  document.getElementById('f-contato').value  = f?.contato||'';
+  document.getElementById('f-status').value   = f?.status||'andamento';
+  document.getElementById('f-datapag').value  = f?.datapag||'';
+  document.getElementById('f-diapag').value   = f?.diapag||'';
+  document.getElementById('f-obs').value      = f?.obs||'';
   openModal('modal-freela');
 }
-['btn-new-freela','btn-new-freela-eq'].forEach(id=>{ const e=document.getElementById(id); if(e)e.onclick=()=>openFreelaModal(null); });
+['btn-new-freela-page'].forEach(id=>{ const e=document.getElementById(id); if(e)e.onclick=()=>openFreelaModal(null); });
+document.getElementById('mf-close').onclick  = ()=>closeModal('modal-freela');
+document.getElementById('mf-cancel').onclick = ()=>closeModal('modal-freela');
 document.getElementById('mf-save').onclick = async ()=>{
-  const n=document.getElementById('f-nome').value.trim();
-  const fn=document.getElementById('f-funcao').value;
-  const v=parseFloat(document.getElementById('f-valor').value)||0;
-  const d=parseInt(document.getElementById('f-dia').value)||1;
-  if(!n){alert('Informe o nome');return;}
-  if(state.editFreelaId){ const i=DB.freelas.findIndex(x=>x.id===state.editFreelaId); if(i>=0){DB.freelas[i].nome=n;DB.freelas[i].funcao=fn;DB.freelas[i].valor=v;DB.freelas[i].dia=d;} }
-  else DB.freelas.push({id:uid(),nome:n,funcao:fn,valor:v,dia:d});
+  const n = document.getElementById('f-nome').value.trim();
+  if(!n){alert('Informe o nome do cliente');return;}
+  const data = {
+    id:       state.editFreelaId || uid(),
+    nome:     n,
+    funcao:   document.getElementById('f-funcao').value,
+    valor:    parseFloat(document.getElementById('f-valor').value)||0,
+    continuo: document.getElementById('f-continuo').value,
+    inicio:   document.getElementById('f-inicio').value,
+    prazo:    document.getElementById('f-prazo').value,
+    contato:  document.getElementById('f-contato').value,
+    status:   document.getElementById('f-status').value,
+    datapag:  document.getElementById('f-datapag').value,
+    diapag:   parseInt(document.getElementById('f-diapag').value)||0,
+    obs:      document.getElementById('f-obs').value,
+  };
+  if(state.editFreelaId){
+    const i=DB.freelas.findIndex(x=>x.id===state.editFreelaId);
+    if(i>=0) DB.freelas[i]=data;
+  } else {
+    DB.freelas.push(data);
+  }
   closeModal('modal-freela');
+  await saveDB();
+};
+
+// ═══ EQUIPE MEMBER MODAL ══════════════════════════════════════════
+function openEquipeMemberModal(editId){
+  state.editEquipeId = editId||null;
+  const m = editId ? (DB.equipe||[]).find(x=>x.id===editId) : null;
+  document.getElementById('mem-title').textContent = m ? 'Editar membro' : 'Novo membro da equipe';
+  document.getElementById('mem-nome').value   = m?.nome||'';
+  document.getElementById('mem-funcao').value = m?.funcao||'Editor';
+  document.getElementById('mem-valor').value  = m?.valor||'';
+  document.getElementById('mem-dia').value    = m?.dia||'';
+  openModal('modal-equipe-member');
+}
+document.getElementById('mem-close').onclick  = ()=>closeModal('modal-equipe-member');
+document.getElementById('mem-cancel').onclick = ()=>closeModal('modal-equipe-member');
+document.getElementById('btn-new-equipe-member').addEventListener('click', ()=>openEquipeMemberModal(null));
+document.getElementById('mem-save').onclick = async ()=>{
+  const n = document.getElementById('mem-nome').value.trim();
+  if(!n){alert('Informe o nome');return;}
+  if(!DB.equipe) DB.equipe=[];
+  const data = {
+    id:    state.editEquipeId || uid(),
+    nome:  n,
+    funcao:document.getElementById('mem-funcao').value,
+    valor: parseFloat(document.getElementById('mem-valor').value)||0,
+    dia:   parseInt(document.getElementById('mem-dia').value)||1,
+  };
+  if(state.editEquipeId){
+    const i=DB.equipe.findIndex(x=>x.id===state.editEquipeId);
+    if(i>=0) DB.equipe[i]=data; else DB.equipe.push(data);
+  } else {
+    DB.equipe.push(data);
+  }
+  closeModal('modal-equipe-member');
   await saveDB();
 };
 
@@ -672,6 +998,22 @@ document.getElementById('mia-save').onclick = async ()=>{
 };
 
 // ═══ META MODAL ══════════════════════════════════
+// Edit post modal
+document.getElementById('mep-close').onclick = ()=>closeModal('modal-edit-post');
+document.getElementById('mep-cancel').onclick = ()=>closeModal('modal-edit-post');
+document.getElementById('mep-save').onclick = async ()=>{
+  const pid = document.getElementById('ep-id').value;
+  const idx = DB.posts.findIndex(x=>x.id===pid);
+  if(idx<0) return;
+  DB.posts[idx].cliente = document.getElementById('ep-cliente').value;
+  DB.posts[idx].tipo    = document.getElementById('ep-tipo').value;
+  DB.posts[idx].data    = document.getElementById('ep-data').value;
+  DB.posts[idx].produtor= document.getElementById('ep-produtor').value;
+  DB.posts[idx].obs     = document.getElementById('ep-obs').value;
+  closeModal('modal-edit-post');
+  await saveDB();
+};
+
 document.getElementById('btn-meta').onclick = ()=>{ document.getElementById('meta-s').value=DB.meta.s||''; document.getElementById('meta-m').value=DB.meta.m||''; openModal('modal-meta'); };
 document.getElementById('mm-save').onclick = async ()=>{ DB.meta.s=parseInt(document.getElementById('meta-s').value)||0; DB.meta.m=parseInt(document.getElementById('meta-m').value)||0; closeModal('modal-meta'); await saveDB(); };
 
@@ -694,9 +1036,14 @@ function renderPainel(){
   document.getElementById('painel-alerts').innerHTML=al;
   document.getElementById('painel-mes-label').textContent=MESES[m]+' '+y;
   document.getElementById('painel-status-mes').textContent=MESES[m]+' '+y;
-  document.getElementById('ps-bruto').textContent=fmtR(totC());
+  const psMensais = totCSoMensais();
+  const psFreelas = totFreelasAtivos();
+  const psBruto = psMensais + psFreelas;
+  document.getElementById('ps-mensais').textContent=fmtR(psMensais);
+  document.getElementById('ps-freelas').textContent=fmtR(psFreelas);
+  document.getElementById('ps-bruto').textContent=fmtR(psBruto);
   document.getElementById('ps-gastos').textContent=fmtR(totGastos());
-  document.getElementById('ps-liquido').textContent=fmtR(totLiq());
+  document.getElementById('ps-liquido').textContent=fmtR(psBruto-totGastos());
   document.getElementById('painel-week-label').textContent=fmt(wd[0])+' – '+fmt(wd[6]);
   document.getElementById('painel-metrics').innerHTML=
     `<div class="metric"><div class="ml">Posts semana</div><div class="mv">${wP.length}</div></div>`+
@@ -770,6 +1117,9 @@ function renderAgenda(){
       row.appendChild(et);
       const prod=el('span','',p.produtor);prod.style.cssText='font-size:11px;color:#888';
       row.appendChild(prod);
+      const editBtn=btnEdit(()=>openEditPostModal(p.id));
+      editBtn.style.cssText='width:24px;height:24px;flex-shrink:0';
+      row.appendChild(editBtn);
       block.appendChild(row);
     });
     container.appendChild(block);
@@ -796,7 +1146,9 @@ function renderKanban(){
     });
     const head=el('div','khead');head.style.color=ETAPA_TX[i];
     head.appendChild(el('span','',etapa));
-    const ep=DB.posts.filter(p=>p.etapa===i);
+    let ep=DB.posts.filter(p=>p.etapa===i);
+    // Sort "Para fazer" by date ascending (most urgent first)
+    if(i===0) ep.sort((a,b)=>a.data.localeCompare(b.data));
     head.appendChild(el('span','kcnt',''+ep.length));
     col.appendChild(head);
     if(!ep.length){const e=el('div','empty','Arraste um card aqui');e.style.padding='1rem 0';col.appendChild(e);}
@@ -810,6 +1162,7 @@ function renderKanban(){
       card.appendChild(badge(p.tipo==='Reels'?'badge br':p.tipo==='Post único'?'badge bu':'badge bc',p.tipo));
       card.appendChild(el('div','kcard-meta',fmtFull(p.data)+' · '+p.produtor+(p.obs?' · '+p.obs:'')));
       const acts=el('div','kcard-acts');
+      acts.appendChild(btnEdit(()=>openEditPostModal(p.id)));
       acts.appendChild(btnDel(async()=>{
         if(!confirm('Remover este post?'))return;
         DB.posts=DB.posts.filter(x=>x.id!==p.id);
@@ -890,8 +1243,15 @@ function renderFinC(){
   const venc=DB.clientes.filter(c=>getSt(c.dia,isPaid(c.id,y,m,'c'))==='vencido');
   document.getElementById('fin-alerts').innerHTML=venc.length?`<div class="al al-danger">⚠ Vencidos em ${MESES[m]}: ${venc.map(c=>c.nome).join(', ')}</div>`:'';
   const tb=document.getElementById('fin-ct');tb.innerHTML='';
-  if(!DB.clientes.length){tb.innerHTML='<tr><td colspan="5" class="empty">Nenhum cliente</td></tr>';}
-  else DB.clientes.forEach(c=>{
+  updateSortIcons('c', sortC);
+  const m_val=sortC.col,y_val=state.finY,mo_val=state.finM;
+  const sortedC = [...DB.clientes].sort((a,b)=>{
+    const av=getSortVal(a,m_val,mo_val,y_val,'c'), bv=getSortVal(b,m_val,mo_val,y_val,'c');
+    if(typeof av==='number') return (av-bv)*sortC.dir;
+    return String(av).localeCompare(String(bv))*sortC.dir;
+  });
+  if(!sortedC.length){tb.innerHTML='<tr><td colspan="5" class="empty">Nenhum cliente</td></tr>';}
+  else sortedC.forEach(c=>{
     const paid=isPaid(c.id,y,m,'c'),st=getSt(c.dia,paid),cid=c.id;
     const tr=document.createElement('tr');tr.className='row-'+st;
     tr.innerHTML=`<td style="font-weight:700">${c.nome}</td><td>${fmtR(c.valor)}</td><td>Dia ${c.dia}</td><td><span class="badge b${st.slice(0,2)}">${{pago:'Pago',pendente:'Pendente',vencido:'Vencido'}[st]}</span></td>`;
@@ -904,15 +1264,21 @@ function renderFinC(){
     acts.appendChild(btnDel(async()=>{if(!confirm(`Remover "${c.nome}"?`))return;DB.clientes=DB.clientes.filter(x=>x.id!==cid);await saveDB();}));
     tdA.appendChild(acts);tr.appendChild(tdA);tb.appendChild(tr);
   });
-  const tot=totC(),pago=DB.clientes.filter(c=>isPaid(c.id,y,m,'c')).reduce((a,c)=>a+Number(c.valor),0);
+  const tot=totC(),pago=DB.clientes.filter(c=>isPaid(c.id,state.finY,state.finM,'c')).reduce((a,c)=>a+Number(c.valor),0);
   document.getElementById('fin-totals').innerHTML=`<div class="metric"><div class="ml">Total ${MESES[m].slice(0,3)}</div><div class="mv" style="font-size:17px">${fmtR(tot)}</div></div><div class="metric"><div class="ml">Recebido</div><div class="mv" style="font-size:17px;color:#3b6d11">${fmtR(pago)}</div></div><div class="metric"><div class="ml">Pendente</div><div class="mv" style="font-size:17px;color:#854f0b">${fmtR(tot-pago)}</div></div>`;
 }
 function renderFinF(){
   buildMTabs('fr-mtabs',state.frM,state.frY,'fr',(m,y)=>{state.frM=m;state.frY=y;renderFinF();});
   const m=state.frM,y=state.frY;
   const tb=document.getElementById('fin-ft');tb.innerHTML='';
-  if(!DB.freelas.length){tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum freela</td></tr>';return;}
-  DB.freelas.forEach(f=>{
+  updateSortIcons('f', sortF);
+  const sortedF = [...DB.freelas].sort((a,b)=>{
+    const av=getSortVal(a,sortF.col,state.frM,state.frY,'f'), bv=getSortVal(b,sortF.col,state.frM,state.frY,'f');
+    if(typeof av==='number') return (av-bv)*sortF.dir;
+    return String(av).localeCompare(String(bv))*sortF.dir;
+  });
+  if(!sortedF.length){tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum freela</td></tr>';return;}
+  sortedF.forEach(f=>{
     const paid=isPaid(f.id,y,m,'f'),st=getSt(f.dia,paid),fid=f.id;
     const tr=document.createElement('tr');tr.className='row-'+st;
     tr.innerHTML=`<td style="font-weight:700">${f.nome}</td><td>${f.funcao}</td><td>${fmtR(f.valor)}</td><td>Dia ${f.dia}</td><td><span class="badge b${st.slice(0,2)}">${{pago:'Pago',pendente:'Pendente',vencido:'Vencido'}[st]}</span></td>`;
@@ -929,11 +1295,12 @@ function renderFinF(){
 
 // ═══ EQUIPE ══════════════════════════════════════
 function renderEquipe(){
-  document.getElementById('eq-bruto').textContent=fmtR(totC());
+  const eqBruto = totCSoMensais()+totFreelasAtivos();
+  document.getElementById('eq-bruto').textContent=fmtR(eqBruto);
   document.getElementById('eq-gastos').textContent=fmtR(totGastos());
-  document.getElementById('eq-liquido').textContent=fmtR(totLiq());
+  document.getElementById('eq-liquido').textContent=fmtR(eqBruto-totGastos());
   document.getElementById('eq-tc').textContent=fmtR(totC());
-  document.getElementById('eq-tf').textContent=fmtR(totF());
+  document.getElementById('eq-tf').textContent=fmtR(totF()); // equipe costs
   const eqC=document.getElementById('eq-c');eqC.innerHTML='';
   if(!DB.clientes.length){eqC.innerHTML='<div class="empty">Nenhum cliente</div>';}
   else DB.clientes.forEach(c=>{
@@ -947,15 +1314,16 @@ function renderEquipe(){
     card.appendChild(info);card.appendChild(acts);eqC.appendChild(card);
   });
   const eqF=document.getElementById('eq-f');eqF.innerHTML='';
-  if(!DB.freelas.length){eqF.innerHTML='<div class="empty">Nenhum freela</div>';}
-  else DB.freelas.forEach(f=>{
+  const equipeList = DB.equipe||[];
+  if(!equipeList.length){eqF.innerHTML='<div class="empty">Nenhum membro. Clique em "+ Add membro"</div>';}
+  else equipeList.forEach(m=>{
     const card=el('div','tcard');
-    const info=el('div');info.innerHTML=`<div style="font-size:13px;font-weight:700">${f.nome} <span style="font-size:11px;font-weight:400;color:#888">${f.funcao}</span></div><div style="font-size:11px;color:#888">Paga dia ${f.dia}</div>`;
+    const info=el('div');info.innerHTML=`<div style="font-size:13px;font-weight:700">${m.nome} <span style="font-size:11px;font-weight:400;color:#888">${m.funcao}</span></div><div style="font-size:11px;color:#888">Paga dia ${m.dia}</div>`;
     const acts=el('div');acts.style.cssText='display:flex;align-items:center;gap:8px';
-    const val=el('span','',fmtR(f.valor));val.style.cssText='font-size:14px;font-weight:700;color:#a32d2d';
+    const val=el('span','',fmtR(m.valor));val.style.cssText='font-size:14px;font-weight:700;color:#a32d2d';
     acts.appendChild(val);
-    acts.appendChild(btnEdit(()=>openFreelaModal(f.id)));
-    acts.appendChild(btnDel(async()=>{if(!confirm('Remover?'))return;DB.freelas=DB.freelas.filter(x=>x.id!==f.id);await saveDB();}));
+    acts.appendChild(btnEdit(()=>openEquipeMemberModal(m.id)));
+    acts.appendChild(btnDel(async()=>{if(!confirm('Remover?'))return;DB.equipe=DB.equipe.filter(x=>x.id!==m.id);await saveDB();}));
     card.appendChild(info);card.appendChild(acts);eqF.appendChild(card);
   });
 }
