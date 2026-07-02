@@ -244,6 +244,10 @@ tr.row-parcial td{background:#f0f5ff}
       </tr></thead><tbody id="fin-ct"></tbody></table>
     </div>
     <div class="card"><div class="g3" id="fin-totals"></div></div>
+    <div class="card" id="fin-balanco-card">
+      <h3 style="margin-bottom:.875rem">📊 Balanço real do mês</h3>
+      <div id="fin-balanco"></div>
+    </div>
   </div>
   <div id="fin-f" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
@@ -396,12 +400,17 @@ tr.row-parcial td{background:#f0f5ff}
   <input type="hidden" id="mem-eid">
   <div class="irow">
     <div class="field"><label>Nome</label><input type="text" id="mem-nome" placeholder="Ex: Mateus"></div>
-    <div class="field"><label>Função</label><select id="mem-funcao"><option>Editor</option><option>Designer</option><option>Redator</option><option>Social Media</option><option>Outro</option></select></div>
+    <div class="field"><label>Função</label><select id="mem-funcao"><option>Editor</option><option>Designer</option><option>Redator</option><option>Social Media</option><option>Desenvolvedor de Site</option><option>Construção de Site</option><option>Outro</option></select></div>
   </div>
   <div class="irow">
     <div class="field"><label>Valor mensal (R$)</label><input type="number" id="mem-valor" placeholder="0" step="0.01"></div>
     <div class="field"><label>Dia de pagamento</label><input type="number" id="mem-dia" min="1" max="31" placeholder="5"></div>
   </div>
+  <div class="field" style="margin-bottom:.875rem">
+    <label>Freela vinculado (opcional)</label>
+    <select id="mem-freela-id"><option value="">Nenhum</option></select>
+  </div>
+  <div id="mem-freela-info" style="display:none;background:#f0f5ff;border-radius:8px;padding:.75rem;margin-bottom:.875rem;font-size:12px"></div>
   <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="mem-cancel">Cancelar</button><button class="btn btn-primary" id="mem-save">Salvar</button></div>
 </div></div>
 
@@ -482,14 +491,25 @@ tr.row-parcial td{background:#f0f5ff}
   <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="mf-cancel">Cancelar</button><button class="btn btn-primary" id="mf-save">Salvar</button></div>
 </div></div>
 
-<!-- Pagamento cliente -->
+<!-- Pagamento cliente (entradas livres) -->
 <div class="overlay" id="modal-pagto"><div class="mbox">
   <div class="mhead"><h3 id="mpg-title">Registrar pagamento</h3><button class="btn btn-icon" id="mpg-close">✕</button></div>
   <input type="hidden" id="mpg-cid">
   <input type="hidden" id="mpg-y">
   <input type="hidden" id="mpg-m">
-  <div id="mpg-list"></div>
-  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:1rem"><button class="btn" id="mpg-cancel">Fechar</button></div>
+  <div id="mpg-summary" style="background:#f5f5f0;border-radius:8px;padding:.875rem;margin-bottom:1rem;font-size:13px"></div>
+  <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:.5rem">Entradas registradas:</div>
+  <div id="mpg-list" style="margin-bottom:1rem"></div>
+  <div style="background:#eaf3de;border-radius:8px;padding:.875rem;margin-bottom:.875rem">
+    <div style="font-size:12px;font-weight:700;color:#3b6d11;margin-bottom:.5rem">+ Registrar nova entrada</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="field" style="flex:1;min-width:120px"><label>Valor (R$)</label><input type="number" id="mpg-novo-val" placeholder="Ex: 600" step="0.01"></div>
+      <div class="field" style="flex:1;min-width:120px"><label>Data</label><input type="date" id="mpg-novo-data"></div>
+    </div>
+    <div class="field" style="margin-top:.5rem"><label>Observação (opcional)</label><input type="text" id="mpg-novo-obs" placeholder="Ex: PIX, boleto..."></div>
+    <button class="btn btn-primary btn-sm" id="mpg-add-entrada" style="margin-top:.75rem">+ Adicionar entrada</button>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="mpg-cancel">Fechar</button></div>
 </div></div>
 
 <!-- Pagamento freela -->
@@ -642,21 +662,29 @@ function totBruto(){return totCSoMensais()+totFreelasAtivos();}
 function pKey(cid,y,m){return"c_"+cid+"_"+y+"_"+m;}
 function getClientePagto(cid,y,m){return DB.pagtos[pKey(cid,y,m)]||null;}
 function getClienteStatus(c,y,m){
+  const now=new Date();
+  const isPastMonth=(y<now.getFullYear())||(y===now.getFullYear()&&m<now.getMonth());
+  const isCurrentMonth=(y===now.getFullYear()&&m===now.getMonth());
+  function calcSt(pagoVal){
+    const total=Number(c.valor);
+    if(pagoVal>=total&&total>0)return"pago";
+    if(pagoVal>0)return"parcial";
+    if(isPastMonth)return"vencido";
+    if(isCurrentMonth)return now.getDate()>c.dia?"vencido":"pendente";
+    return"pendente";
+  }
   const pt=getClientePagto(c.id,y,m);
   if(!pt){
-    if(DB.payments["c_"+c.id+"_"+y+"_"+m])return"pago";
-    return new Date().getDate()>c.dia?"vencido":"pendente";
+    const legacyPago=!!(DB.payments["c_"+c.id+"_"+y+"_"+m]);
+    return calcSt(legacyPago?Number(c.valor):0);
   }
-  const total=Number(c.valor);
-  const pago=pt.parcelas.filter(p=>p.pago).reduce((a,p)=>a+Number(p.valor),0);
-  if(pago>=total)return"pago";
-  if(pago>0)return"parcial";
-  return new Date().getDate()>c.dia?"vencido":"pendente";
+  const pagoVal=(pt.entradas||[]).reduce((a,e)=>a+Number(e.valor),0);
+  return calcSt(pagoVal);
 }
 function getClientePagoVal(c,y,m){
   const pt=getClientePagto(c.id,y,m);
   if(!pt){return DB.payments["c_"+c.id+"_"+y+"_"+m]?Number(c.valor):0;}
-  return pt.parcelas.filter(p=>p.pago).reduce((a,p)=>a+Number(p.valor),0);
+  return(pt.entradas||[]).reduce((a,e)=>a+Number(e.valor),0);
 }
 
 // ── MONTH TABS ──────────────────────────────────────────────
@@ -813,15 +841,31 @@ function openEquipeMemberModal(eid){
   document.getElementById("mem-funcao").value=m?.funcao||"Editor";
   document.getElementById("mem-valor").value=m?.valor||"";
   document.getElementById("mem-dia").value=m?.dia||"";
+  // Populate freela select
+  const sel=document.getElementById("mem-freela-id");
+  sel.innerHTML='<option value="">Nenhum freela vinculado</option>';
+  DB.freelas.forEach(f=>{const o=document.createElement("option");o.value=f.id;o.textContent=f.nome+" — "+f.funcao;sel.appendChild(o);});
+  sel.value=m?.freelaId||"";
+  showMemFreelaInfo(sel.value);
   openM("modal-equipe-member");
 }
+function showMemFreelaInfo(fid){
+  const info=document.getElementById("mem-freela-info");
+  if(!fid){info.style.display="none";return;}
+  const f=DB.freelas.find(x=>x.id===fid);
+  if(!f){info.style.display="none";return;}
+  const pagas=(f.pagdatas||[]).filter(p=>p.pago).reduce((a,p)=>a+Number(p.valor),0);
+  info.style.display="";
+  info.innerHTML=`<b>🔗 Freela vinculado:</b> ${f.nome}<br>Tipo: ${f.funcao}<br>Valor total: ${fmtR(f.valor)}<br>Status: ${f.status}<br>Recebido: ${fmtR(pagas)} de ${fmtR(f.valor)}`;
+}
+document.getElementById("mem-freela-id").onchange=function(){showMemFreelaInfo(this.value);};
 document.getElementById("btn-new-equipe-member").onclick=()=>openEquipeMemberModal(null);
 document.getElementById("btn-new-equipe-fin").onclick=()=>openEquipeMemberModal(null);
 ["mem-close","mem-cancel"].forEach(id=>document.getElementById(id).onclick=()=>closeM("modal-equipe-member"));
 document.getElementById("mem-save").onclick=async()=>{
   const n=document.getElementById("mem-nome").value.trim();if(!n){alert("Informe o nome");return;}
   if(!DB.equipe)DB.equipe=[];
-  const data={id:STATE.editEquipeId||uid(),nome:n,funcao:document.getElementById("mem-funcao").value,valor:parseFloat(document.getElementById("mem-valor").value)||0,dia:parseInt(document.getElementById("mem-dia").value)||1};
+  const data={id:STATE.editEquipeId||uid(),nome:n,funcao:document.getElementById("mem-funcao").value,valor:parseFloat(document.getElementById("mem-valor").value)||0,dia:parseInt(document.getElementById("mem-dia").value)||1,freelaId:document.getElementById("mem-freela-id").value||""};
   if(STATE.editEquipeId){const i=DB.equipe.findIndex(x=>x.id===STATE.editEquipeId);if(i>=0)DB.equipe[i]=data;else DB.equipe.push(data);}
   else DB.equipe.push(data);
   closeM("modal-equipe-member");await saveDB();
@@ -925,48 +969,75 @@ document.getElementById("mf-save").onclick=async()=>{
   closeM("modal-freela");await saveDB();
 };
 
-// ── PAGAMENTO CLIENTE ──────────────────────────────────────
+// ── PAGAMENTO CLIENTE (entradas livres) ───────────────────
 function openPagtoModal(cid,y,m){
   const c=DB.clientes.find(x=>x.id===cid);if(!c)return;
   document.getElementById("mpg-title").textContent="Pagamentos — "+c.nome+" ("+MESES[m].slice(0,3)+"/"+y+")";
   document.getElementById("mpg-cid").value=cid;
   document.getElementById("mpg-y").value=y;
   document.getElementById("mpg-m").value=m;
-  const k=pKey(cid,y,m);
-  let pt=DB.pagtos[k];
-  if(!pt){
-    let parcelas=[];
-    if(c.pagtype==="fracionado"&&c.parcelas?.length){
-      parcelas=c.parcelas.map((p,i)=>({idx:i,label:`Parcela ${i+1} (${p.perc}%)`,valor:Math.round(Number(c.valor)*p.perc/100*100)/100,dia:p.dia,pago:false,dataPago:""}));
-    }else{
-      parcelas=[{idx:0,label:"Pagamento integral",valor:Number(c.valor),dia:c.dia,pago:false,dataPago:""}];
-    }
-    pt={parcelas};
-  }
-  const list=document.getElementById("mpg-list");list.innerHTML="";
-  pt.parcelas.forEach((p,i)=>{
-    const block=el("div","pagto-block");
-    const row1=el("div","pagto-row");
-    const cb=el("input");cb.type="checkbox";cb.checked=p.pago;
-    cb.onchange=async()=>{
-      pt.parcelas[i].pago=cb.checked;
-      if(cb.checked&&!pt.parcelas[i].dataPago)pt.parcelas[i].dataPago=today();
-      DB.pagtos[k]=pt;await saveDB();renderFinC();renderPainel();
-    };
-    const lbl=el("label","",p.label+" — "+fmtR(p.valor));lbl.style.cssText="font-weight:600;flex:1";
-    const st=p.pago?badge("badge bpago","Pago"):badge("badge bpendente","Pendente");
-    row1.appendChild(cb);row1.appendChild(lbl);row1.appendChild(st);block.appendChild(row1);
-    if(p.pago){
-      const row2=el("div","pagto-row");
-      const dtlbl=el("span","","Data: ");dtlbl.style.fontSize="12px";
-      const dtInp=el("input");dtInp.type="date";dtInp.value=p.dataPago||today();dtInp.style.cssText="width:140px;font-size:12px";
-      dtInp.onchange=async()=>{pt.parcelas[i].dataPago=dtInp.value;DB.pagtos[k]=pt;await saveDB();};
-      row2.appendChild(dtlbl);row2.appendChild(dtInp);block.appendChild(row2);
-    }
-    list.appendChild(block);
-  });
+  document.getElementById("mpg-novo-val").value="";
+  document.getElementById("mpg-novo-data").value=today();
+  document.getElementById("mpg-novo-obs").value="";
+  renderPagtoModal(cid,y,m);
   openM("modal-pagto");
 }
+function renderPagtoModal(cid,y,m){
+  const c=DB.clientes.find(x=>x.id===cid);if(!c)return;
+  const k=pKey(cid,y,m);
+  const pt=DB.pagtos[k]||{entradas:[]};
+  const total=Number(c.valor);
+  const pagoVal=(pt.entradas||[]).reduce((a,e)=>a+Number(e.valor),0);
+  const falta=total-pagoVal;
+  // Summary
+  const pct=total>0?Math.min(100,Math.round(pagoVal/total*100)):0;
+  const col=pagoVal>=total?"#3b6d11":pagoVal>0?"#185fa5":"#854f0b";
+  document.getElementById("mpg-summary").innerHTML=
+    `<div style="display:flex;justify-content:space-between;margin-bottom:.5rem">
+      <span><b>Total mensalidade:</b> ${fmtR(total)}</span>
+      <span style="color:${col};font-weight:700">${pct}% recebido</span>
+    </div>
+    <div style="background:#e5e5e0;border-radius:99px;height:8px;overflow:hidden;margin-bottom:.5rem">
+      <div style="height:100%;width:${pct}%;background:${col};border-radius:99px"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:12px">
+      <span style="color:#3b6d11">✓ Recebido: ${fmtR(pagoVal)}</span>
+      <span style="color:${falta>0?"#a32d2d":"#3b6d11"}">Falta: ${fmtR(Math.max(0,falta))}</span>
+    </div>`;
+  // List entries
+  const list=document.getElementById("mpg-list");list.innerHTML="";
+  if(!(pt.entradas||[]).length){
+    list.innerHTML='<div style="color:#ccc;font-size:13px;text-align:center;padding:.75rem">Nenhuma entrada registrada</div>';
+  } else {
+    (pt.entradas||[]).forEach((e,i)=>{
+      const row=el("div","pagto-block");
+      row.style.cssText="display:flex;align-items:center;gap:8px;justify-content:space-between";
+      const info=el("div");
+      info.innerHTML=`<div style="font-weight:600">${fmtR(e.valor)}</div><div style="font-size:11px;color:#666">${fmtFull(e.data)}${e.obs?" — "+e.obs:""}</div>`;
+      const rm=btnDel(async()=>{
+        pt.entradas.splice(i,1);
+        if(!pt.entradas.length)delete DB.pagtos[k];else DB.pagtos[k]=pt;
+        await saveDB();renderPagtoModal(cid,y,m);renderFinC();renderPainel();
+      });
+      row.appendChild(info);row.appendChild(rm);list.appendChild(row);
+    });
+  }
+}
+document.getElementById("mpg-add-entrada").onclick=async()=>{
+  const cid=document.getElementById("mpg-cid").value;
+  const y=parseInt(document.getElementById("mpg-y").value);
+  const m=parseInt(document.getElementById("mpg-m").value);
+  const val=parseFloat(document.getElementById("mpg-novo-val").value)||0;
+  const data=document.getElementById("mpg-novo-data").value||today();
+  const obs=document.getElementById("mpg-novo-obs").value;
+  if(!val||val<=0){alert("Informe o valor");return;}
+  const k=pKey(cid,y,m);
+  if(!DB.pagtos[k])DB.pagtos[k]={entradas:[]};
+  DB.pagtos[k].entradas.push({valor:val,data,obs});
+  document.getElementById("mpg-novo-val").value="";
+  document.getElementById("mpg-novo-obs").value="";
+  await saveDB();renderPagtoModal(cid,y,m);renderFinC();renderPainel();
+};
 document.getElementById("mpg-close").onclick=()=>closeM("modal-pagto");
 document.getElementById("mpg-cancel").onclick=()=>closeM("modal-pagto");
 
@@ -1129,7 +1200,7 @@ function renderPainel(){
     const falta=Number(c.valor)-pago;
     if(st==="vencido")payAlerts+=`<div class="al al-danger">⚠ <strong>${c.nome}</strong> — ${MESES[m]}: não pagou (${fmtR(c.valor)})</div>`;
     else if(st==="parcial")payAlerts+=`<div class="al al-warning">💰 <strong>${c.nome}</strong> — ${MESES[m]}: pagou ${fmtR(pago)}, falta ${fmtR(falta)}</div>`;
-    else if(st==="pendente"&&new Date().getDate()>=(c.dia-3))payAlerts+=`<div class="al al-info">📅 <strong>${c.nome}</strong> — vence dia ${c.dia} (${fmtR(c.valor)})</div>`;
+    else if(st==="pendente")payAlerts+=`<div class="al al-info">📅 <strong>${c.nome}</strong> — vence dia ${c.dia}/${String(m+1).padStart(2,"0")} (${fmtR(c.valor)})</div>`;
   });
   // Freela alerts
   DB.freelas.forEach(f=>{
@@ -1355,8 +1426,61 @@ function renderFinC(){
   const pago=DB.clientes.reduce((a,c)=>a+getClientePagoVal(c,y,m),0);
   document.getElementById("fin-totals").innerHTML=
     `<div class="metric"><div class="ml">Total ${MESES[m].slice(0,3)}</div><div class="mv" style="font-size:17px">${fmtR(tot)}</div></div>`+
-    `<div class="metric"><div class="ml">Recebido</div><div class="mv" style="font-size:17px;color:#3b6d11">${fmtR(pago)}</div></div>`+
-    `<div class="metric"><div class="ml">Pendente</div><div class="mv" style="font-size:17px;color:#854f0b">${fmtR(tot-pago)}</div></div>`;
+    `<div class="metric"><div class="ml">Recebido clientes</div><div class="mv" style="font-size:17px;color:#3b6d11">${fmtR(pago)}</div></div>`+
+    `<div class="metric"><div class="ml">Pendente clientes</div><div class="mv" style="font-size:17px;color:#854f0b">${fmtR(tot-pago)}</div></div>`;
+
+  // Balanço real do mês
+  renderBalanco(m,y);
+}
+function renderBalanco(m,y){
+  const el2=document.getElementById("fin-balanco");if(!el2)return;
+  const now=new Date();
+  const isCurrent=(y===now.getFullYear()&&m===now.getMonth());
+  const ms=String(y)+"-"+String(m+1).padStart(2,"0");
+
+  // Clientes: recebido no mês
+  const clientesRecebido=DB.clientes.reduce((a,c)=>a+getClientePagoVal(c,y,m),0);
+  const clientesTotal=totCSoMensais();
+
+  // Freelas: valor efetivamente recebido (parcelas marcadas com data no mês)
+  let freelasRecebidoMes=0,freelasPendente=0,freelasRepassado=0;
+  DB.freelas.forEach(f=>{
+    (f.pagdatas||[]).forEach(p=>{
+      if(p.pago&&p.dataPago&&p.dataPago.startsWith(ms))freelasRecebidoMes+=Number(p.valor);
+      if(!p.pago&&f.status!=="concluido")freelasPendente+=Number(p.valor);
+    });
+    (f.freelaDatas||[]).forEach(p=>{
+      if(p.pago&&p.dataPago&&p.dataPago.startsWith(ms))freelasRepassado+=Number(p.valor);
+    });
+  });
+
+  // Equipe paga no mês
+  const equipePago=(DB.equipe||[]).reduce((a,mm)=>{
+    return a+(DB.payments["f_"+mm.id+"_"+y+"_"+m]?Number(mm.valor):0);
+  },0);
+  const equipeTotal=totEquipe();
+  const iaTotal=totIA();
+
+  const totalRecebido=clientesRecebido+freelasRecebidoMes;
+  const totalGasto=equipePago+freelasRepassado;
+  const saldoReal=totalRecebido-totalGasto;
+
+  el2.innerHTML=`
+    <div class="g3" style="margin-bottom:.875rem">
+      <div class="metric"><div class="ml">Clientes recebido</div><div class="mv" style="font-size:16px;color:#3b6d11">${fmtR(clientesRecebido)}</div><div style="font-size:11px;color:#888;margin-top:2px">de ${fmtR(clientesTotal)}</div></div>
+      <div class="metric"><div class="ml">Freelas recebido no mês</div><div class="mv" style="font-size:16px;color:#3b6d11">${fmtR(freelasRecebidoMes)}</div><div style="font-size:11px;color:#888;margin-top:2px">falta: ${fmtR(freelasPendente)}</div></div>
+      <div class="metric"><div class="ml">Total entrou</div><div class="mv" style="font-size:16px;color:#1D9E75">${fmtR(totalRecebido)}</div></div>
+    </div>
+    <div class="g3" style="margin-bottom:.875rem">
+      <div class="metric"><div class="ml">Equipe paga</div><div class="mv" style="font-size:16px;color:#a32d2d">${fmtR(equipePago)}</div><div style="font-size:11px;color:#888;margin-top:2px">de ${fmtR(equipeTotal)}</div></div>
+      <div class="metric"><div class="ml">Freelas repassado</div><div class="mv" style="font-size:16px;color:#a32d2d">${fmtR(freelasRepassado)}</div></div>
+      <div class="metric"><div class="ml">IAs (mensal)</div><div class="mv" style="font-size:16px;color:#a32d2d">${fmtR(iaTotal)}</div></div>
+    </div>
+    <div style="background:${saldoReal>=0?"#eaf3de":"#fff0f0"};border-radius:10px;padding:1rem;text-align:center">
+      <div style="font-size:12px;color:${saldoReal>=0?"#3b6d11":"#a32d2d"};margin-bottom:4px">Saldo real ${MESES[m]} ${y}${isCurrent?" (até agora)":""}</div>
+      <div style="font-size:26px;font-weight:700;color:${saldoReal>=0?"#1D9E75":"#a32d2d"}">${fmtR(saldoReal)}</div>
+      ${saldoReal<0?'<div style="font-size:11px;color:#a32d2d;margin-top:4px">⚠ Gastos superaram receitas</div>':""}
+    </div>`;
 }
 function renderFinF(){
   buildMTabs("fr-mtabs",STATE.frM,STATE.frY,"fr",(m,y)=>{STATE.frM=m;STATE.frY=y;renderFinF();});
@@ -1408,7 +1532,8 @@ function renderEquipe(){
   if(!eql.length){eqF.innerHTML='<div class="empty">Nenhum membro. Clique em "+ Add"</div>';}
   else eql.forEach(m=>{
     const card=el("div","tcard");
-    const info=el("div");info.innerHTML=`<div style="font-size:13px;font-weight:700">${m.nome} <span style="font-size:11px;font-weight:400;color:#888">${m.funcao}</span></div><div style="font-size:11px;color:#888">Paga dia ${m.dia}</div>`;
+    const f=m.freelaId?DB.freelas.find(x=>x.id===m.freelaId):null;
+    const info=el("div");info.innerHTML=`<div style="font-size:13px;font-weight:700">${m.nome} <span style="font-size:11px;font-weight:400;color:#888">${m.funcao}</span></div><div style="font-size:11px;color:#888">Paga dia ${m.dia}${f?` | 🔗 ${f.nome} (${f.funcao})`:""}</div>`;
     const acts=el("div");acts.style.cssText="display:flex;align-items:center;gap:8px";
     const val=el("span","",fmtR(m.valor));val.style.cssText="font-size:14px;font-weight:700;color:#a32d2d";
     acts.appendChild(val);acts.appendChild(btnEdit(()=>openEquipeMemberModal(m.id)));acts.appendChild(btnDel(async()=>{if(!confirm("Remover?"))return;DB.equipe=DB.equipe.filter(x=>x.id!==m.id);await saveDB();}));
