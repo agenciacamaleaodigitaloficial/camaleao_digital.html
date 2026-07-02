@@ -1442,16 +1442,25 @@ function renderBalanco(m,y){
   const clientesRecebido=DB.clientes.reduce((a,c)=>a+getClientePagoVal(c,y,m),0);
   const clientesTotal=totCSoMensais();
 
-  // Freelas: valor efetivamente recebido (parcelas marcadas com data no mês)
+  // Freelas: recorrentes somam automaticamente todo mês; avulsos só contam parcelas marcadas
   let freelasRecebidoMes=0,freelasPendente=0,freelasRepassado=0;
   DB.freelas.forEach(f=>{
-    (f.pagdatas||[]).forEach(p=>{
-      if(p.pago&&p.dataPago&&p.dataPago.startsWith(ms))freelasRecebidoMes+=Number(p.valor);
-      if(!p.pago&&f.status!=="concluido")freelasPendente+=Number(p.valor);
-    });
-    (f.freelaDatas||[]).forEach(p=>{
-      if(p.pago&&p.dataPago&&p.dataPago.startsWith(ms))freelasRepassado+=Number(p.valor);
-    });
+    if(f.status==="concluido")return;
+    if(f.continuo==="sim"){
+      // Recorrente: soma o valor integral todo mês automaticamente
+      freelasRecebidoMes+=Number(f.valor);
+      // Freela esporádico vinculado também é mensal se recorrente
+      if(f.freelaNome&&f.freelaValor)freelasRepassado+=Number(f.freelaValor);
+    } else {
+      // Avulso: conta apenas parcelas marcadas com data no mês
+      (f.pagdatas||[]).forEach(p=>{
+        if(p.pago&&p.dataPago&&p.dataPago.startsWith(ms))freelasRecebidoMes+=Number(p.valor);
+        if(!p.pago)freelasPendente+=Number(p.valor);
+      });
+      (f.freelaDatas||[]).forEach(p=>{
+        if(p.pago&&p.dataPago&&p.dataPago.startsWith(ms))freelasRepassado+=Number(p.valor);
+      });
+    }
   });
 
   // Equipe paga no mês
@@ -1468,7 +1477,7 @@ function renderBalanco(m,y){
   el2.innerHTML=`
     <div class="g3" style="margin-bottom:.875rem">
       <div class="metric"><div class="ml">Clientes recebido</div><div class="mv" style="font-size:16px;color:#3b6d11">${fmtR(clientesRecebido)}</div><div style="font-size:11px;color:#888;margin-top:2px">de ${fmtR(clientesTotal)}</div></div>
-      <div class="metric"><div class="ml">Freelas recebido no mês</div><div class="mv" style="font-size:16px;color:#3b6d11">${fmtR(freelasRecebidoMes)}</div><div style="font-size:11px;color:#888;margin-top:2px">falta: ${fmtR(freelasPendente)}</div></div>
+      <div class="metric"><div class="ml">Freelas (rec. + recorrentes)</div><div class="mv" style="font-size:16px;color:#3b6d11">${fmtR(freelasRecebidoMes)}</div><div style="font-size:11px;color:#888;margin-top:2px">${freelasPendente>0?"avulsos pendentes: "+fmtR(freelasPendente):""}</div></div>
       <div class="metric"><div class="ml">Total entrou</div><div class="mv" style="font-size:16px;color:#1D9E75">${fmtR(totalRecebido)}</div></div>
     </div>
     <div class="g3" style="margin-bottom:.875rem">
