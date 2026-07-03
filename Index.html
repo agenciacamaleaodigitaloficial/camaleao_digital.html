@@ -627,7 +627,7 @@ let STATE={
 // ── UTILS ──────────────────────────────────────────────────
 function uid(){return Date.now()+"_"+Math.floor(Math.random()*99999);}
 function today(){return new Date().toISOString().slice(0,10);}
-function getMon(off){const d=new Date(),dy=d.getDay(),r=new Date(d);r.setDate(d.getDate()-(dy===0?6:dy-1)+(off*7));return r;}
+function getMon(off){const d=new Date(),dy=d.getDay(),r=new Date(d);r.setDate(d.getDate()-dy+(off*7));return r;}
 function weekDates(off){const m=getMon(off);return Array.from({length:7},(_,i)=>{const d=new Date(m);d.setDate(m.getDate()+i);return d.toISOString().slice(0,10)});}
 function fmt(s){if(!s)return "";const[y,mo,d]=s.split("-");return d+"/"+mo;}
 function fmtFull(s){if(!s)return "";const[y,mo,d]=s.split("-");return d+"/"+mo+"/"+y.slice(2);}
