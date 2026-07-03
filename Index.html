@@ -379,6 +379,9 @@ tr.row-parcial td{background:#f0f5ff}
     <div class="field"><label>Dia vencimento principal</label><input type="number" id="c-dia" min="1" max="31" placeholder="10"></div>
   </div>
   <div class="irow">
+    <div class="field"><label>Data de início (quando começou)</label><input type="date" id="c-inicio" placeholder="Ex: 2024-01-15"></div>
+  </div>
+  <div class="irow">
     <div class="field"><label>Forma de pagamento</label>
       <select id="c-pagtype">
         <option value="integral">100% integral</option>
@@ -660,7 +663,7 @@ function totFreelasAtivos(){
 function totBruto(){return totCSoMensais()+totFreelasAtivos();}
 
 // ── PAYMENT HELPERS ─────────────────────────────────────────
-function pKey(cid,y,m){return"c_"+cid+"_"+y+"_"+m;}
+function pKey(cid,y,m){return"c_"+cid+"_"+y+"_"+String(m).padStart(2,"0");}
 function getClientePagto(cid,y,m){return DB.pagtos[pKey(cid,y,m)]||null;}
 function getClienteStatus(c,y,m){
   const now=new Date();
@@ -808,6 +811,7 @@ function openClienteModal(eid){
   document.getElementById("c-nome").value=c?.nome||"";
   document.getElementById("c-valor").value=c?.valor||"";
   document.getElementById("c-dia").value=c?.dia||"";
+  document.getElementById("c-inicio").value=c?.inicio||"";
   document.getElementById("c-pagtype").value=c?.pagtype||"integral";
   const show=c?.pagtype==="fracionado";
   document.getElementById("c-frac-block").style.display=show?"":"none";
@@ -827,7 +831,8 @@ document.getElementById("mc-save").onclick=async()=>{
     const rows=document.getElementById("c-parcelas-list").children;
     for(const row of rows){const ins=row.querySelectorAll("input");parcelas.push({perc:parseFloat(ins[0].value)||0,dia:parseInt(ins[1].value)||1});}
   }
-  const data={id:STATE.editClienteId||uid(),nome:n,valor:v,dia:d,pagtype:pt,parcelas};
+  const inicio=document.getElementById("c-inicio").value||"";
+  const data={id:STATE.editClienteId||uid(),nome:n,valor:v,dia:d,inicio,pagtype:pt,parcelas};
   if(STATE.editClienteId){const i=DB.clientes.findIndex(x=>x.id===STATE.editClienteId);if(i>=0)DB.clientes[i]=data;}
   else DB.clientes.push(data);
   closeM("modal-cliente");await saveDB();
@@ -1026,19 +1031,25 @@ function renderPagtoModal(cid,y,m){
   }
 }
 document.getElementById("mpg-add-entrada").onclick=async()=>{
-  const cid=document.getElementById("mpg-cid").value;
-  const y=parseInt(document.getElementById("mpg-y").value);
-  const m=parseInt(document.getElementById("mpg-m").value);
+  // Use STATE._pagtoCtx as source of truth (avoids hidden input parsing issues)
+  if(!STATE._pagtoCtx){alert("Erro: contexto perdido. Feche e abra novamente.");return;}
+  const {cid,y,m}=STATE._pagtoCtx;
   const val=parseFloat(document.getElementById("mpg-novo-val").value)||0;
   const data=document.getElementById("mpg-novo-data").value||today();
   const obs=document.getElementById("mpg-novo-obs").value;
-  if(!val||val<=0){alert("Informe o valor");return;}
+  if(!val||val<=0){alert("Informe o valor recebido");return;}
   const k=pKey(cid,y,m);
   if(!DB.pagtos[k])DB.pagtos[k]={entradas:[]};
+  if(!DB.pagtos[k].entradas)DB.pagtos[k].entradas=[];
   DB.pagtos[k].entradas.push({valor:val,data,obs});
   document.getElementById("mpg-novo-val").value="";
   document.getElementById("mpg-novo-obs").value="";
-  await saveDB();renderPagtoModal(cid,y,m);renderFinC();renderPainel();
+  // Render immediately with local data (before Firebase sync)
+  renderPagtoModal(cid,y,m);
+  renderFinC();
+  renderPainel();
+  // Then sync to Firebase
+  await saveDB();
 };
 document.getElementById("mpg-close").onclick=()=>{STATE._pagtoCtx=null;closeM("modal-pagto");};
 document.getElementById("mpg-cancel").onclick=()=>{STATE._pagtoCtx=null;closeM("modal-pagto");};
@@ -1219,9 +1230,30 @@ function renderPainel(){
     });
   });
 
+  // Aniversário de clientes
+  let aniAlerts="";
+  const nowDate=new Date();
+  DB.clientes.forEach(c=>{
+    if(!c.inicio)return;
+    const ini=new Date(c.inicio+"T12:00:00");
+    const anos=nowDate.getFullYear()-ini.getFullYear();
+    if(anos<=0)return;
+    // Check if today is within 7 days of anniversary
+    const aniThisYear=new Date(nowDate.getFullYear(),ini.getMonth(),ini.getDate());
+    const diffDays=Math.round((aniThisYear-nowDate)/(1000*60*60*24));
+    if(diffDays>=0&&diffDays<=7){
+      const estrelas=anos<=1?"🌱":anos<=2?"⭐":"🏆";
+      aniAlerts+=`<div class="al al-info">${estrelas} <strong>${c.nome}</strong> completa <strong>${anos} ano${anos>1?"s":""}</strong> com você em ${aniThisYear.toLocaleDateString("pt-BR")}!</div>`;
+    } else if(diffDays>=-1&&diffDays<0){
+      const estrelas=anos<=1?"🌱":anos<=2?"⭐":"🏆";
+      aniAlerts+=`<div class="al al-success">${estrelas} <strong>${c.nome}</strong> completou hoje <strong>${anos} ano${anos>1?"s":""}</strong> com você! 🎉</div>`;
+    }
+  });
+
   let al="";
   const atras=DB.posts.filter(p=>p.etapa<4&&p.data<hoje);
   if(atras.length)al+=`<div class="al al-warning">⏰ ${atras.length} post(s) com data passada não publicados</div>`;
+  if(aniAlerts)al+=aniAlerts;
   if(!al&&!payAlerts)al='<div class="al al-success">✓ Tudo em dia!</div>';
   document.getElementById("painel-alerts").innerHTML=al;
   document.getElementById("painel-payment-alerts").innerHTML=payAlerts;
@@ -1419,7 +1451,9 @@ function renderFinC(){
     const stBadge={pago:'<span class="badge bpago">Pago</span>',parcial:'<span class="badge bparcial">Parcial</span>',pendente:'<span class="badge bpendente">Pendente</span>',vencido:'<span class="badge bvencido">Vencido</span>'}[st]||"";
     const pagoStr=pagoVal>0?`<span style="font-weight:600;color:#185fa5">${fmtR(pagoVal)}</span>`:"—";
     const pagtoTipo=c.pagtype==="fracionado"?`<span style="font-size:11px;color:#888">(${c.parcelas?.length||2}x)</span>`:"";
-    tr.innerHTML=`<td style="font-weight:700">${c.nome}</td><td>${fmtR(c.valor)} ${pagtoTipo}</td><td>Dia ${c.dia}</td><td>${pagoStr}</td><td>${stBadge}</td>`;
+    const anosF=c.inicio?Math.floor((new Date()-new Date(c.inicio+"T12:00:00"))/(1000*60*60*24*365)):0;
+    const inicioF=c.inicio?`<div style="font-size:10px;color:#999">desde ${new Date(c.inicio+"T12:00:00").toLocaleDateString("pt-BR")}${anosF>0?" · "+anosF+"a":""}</div>`:"";
+    tr.innerHTML=`<td style="font-weight:700">${c.nome}${inicioF}</td><td>${fmtR(c.valor)} ${pagtoTipo}</td><td>Dia ${c.dia}</td><td>${pagoStr}</td><td>${stBadge}</td>`;
     const tdA=document.createElement("td");
     const acts=el("div");acts.style.cssText="display:flex;gap:6px;align-items:center;flex-wrap:wrap";
     const payBtn=el("button","btn btn-sm",st==="pago"?"✓ Pago":"$ Registrar");
@@ -1536,7 +1570,9 @@ function renderEquipe(){
   if(!DB.clientes.length){eqC.innerHTML='<div class="empty">Nenhum cliente</div>';}
   else DB.clientes.forEach(c=>{
     const card=el("div","tcard");
-    const info=el("div");info.innerHTML=`<div style="font-size:13px;font-weight:700">${c.nome}</div><div style="font-size:11px;color:#888">Vence dia ${c.dia}${c.pagtype==="fracionado"?" (fracionado)":""}</div>`;
+    const anosCliente=c.inicio?Math.floor((new Date()-new Date(c.inicio+"T12:00:00"))/(1000*60*60*24*365)):0;
+    const inicioStr=c.inicio?` | desde ${new Date(c.inicio+"T12:00:00").toLocaleDateString("pt-BR")}${anosCliente>0?" ("+anosCliente+"a)":""}` :"";
+    const info=el("div");info.innerHTML=`<div style="font-size:13px;font-weight:700">${c.nome}</div><div style="font-size:11px;color:#888">Vence dia ${c.dia}${c.pagtype==="fracionado"?" (fracionado)":""}${inicioStr}</div>`;
     const acts=el("div");acts.style.cssText="display:flex;align-items:center;gap:8px";
     const val=el("span","",fmtR(c.valor));val.style.cssText="font-size:14px;font-weight:700;color:#1D9E75";
     acts.appendChild(val);acts.appendChild(btnEdit(()=>openClienteModal(c.id)));acts.appendChild(btnDel(async()=>{if(!confirm(`Remover "${c.nome}"?`))return;DB.clientes=DB.clientes.filter(x=>x.id!==c.id);await saveDB();}));
