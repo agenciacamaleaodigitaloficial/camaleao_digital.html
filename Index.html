@@ -501,10 +501,11 @@ tr.row-parcial td{background:#f0f5ff}
   <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:.5rem">Entradas registradas:</div>
   <div id="mpg-list" style="margin-bottom:1rem"></div>
   <div style="background:#eaf3de;border-radius:8px;padding:.875rem;margin-bottom:.875rem">
-    <div style="font-size:12px;font-weight:700;color:#3b6d11;margin-bottom:.5rem">+ Registrar nova entrada</div>
+    <div style="font-size:12px;font-weight:700;color:#3b6d11;margin-bottom:.2rem">+ Registrar nova entrada</div>
+    <div style="font-size:11px;color:#888;margin-bottom:.5rem">A entrada é contabilizada no mês selecionado, independente da data de recebimento.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <div class="field" style="flex:1;min-width:120px"><label>Valor (R$)</label><input type="number" id="mpg-novo-val" placeholder="Ex: 600" step="0.01"></div>
-      <div class="field" style="flex:1;min-width:120px"><label>Data</label><input type="date" id="mpg-novo-data"></div>
+      <div class="field" style="flex:1;min-width:120px"><label>Data do recebimento</label><input type="date" id="mpg-novo-data"></div>
     </div>
     <div class="field" style="margin-top:.5rem"><label>Observação (opcional)</label><input type="text" id="mpg-novo-obs" placeholder="Ex: PIX, boleto..."></div>
     <button class="btn btn-primary btn-sm" id="mpg-add-entrada" style="margin-top:.75rem">+ Adicionar entrada</button>
@@ -979,6 +980,7 @@ function openPagtoModal(cid,y,m){
   document.getElementById("mpg-novo-val").value="";
   document.getElementById("mpg-novo-data").value=today();
   document.getElementById("mpg-novo-obs").value="";
+  STATE._pagtoCtx={cid,y,m};
   renderPagtoModal(cid,y,m);
   openM("modal-pagto");
 }
@@ -1038,8 +1040,8 @@ document.getElementById("mpg-add-entrada").onclick=async()=>{
   document.getElementById("mpg-novo-obs").value="";
   await saveDB();renderPagtoModal(cid,y,m);renderFinC();renderPainel();
 };
-document.getElementById("mpg-close").onclick=()=>closeM("modal-pagto");
-document.getElementById("mpg-cancel").onclick=()=>closeM("modal-pagto");
+document.getElementById("mpg-close").onclick=()=>{STATE._pagtoCtx=null;closeM("modal-pagto");};
+document.getElementById("mpg-cancel").onclick=()=>{STATE._pagtoCtx=null;closeM("modal-pagto");};
 
 // ── PAGAMENTO FREELA ───────────────────────────────────────
 function openFreelaPagtoModal(fid){
@@ -1178,6 +1180,10 @@ function renderAll(){
   if(pg==="freelas")renderFreelasPage();
   if(pg==="acessos")renderAcessos();
   if(pg==="ia")renderIA();
+  // Refresh pagto modal if open
+  if(document.getElementById("modal-pagto").classList.contains("open")&&STATE._pagtoCtx){
+    renderPagtoModal(STATE._pagtoCtx.cid,STATE._pagtoCtx.y,STATE._pagtoCtx.m);
+  }
 }
 
 // ── PAINEL ─────────────────────────────────────────────────
