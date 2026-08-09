@@ -670,6 +670,7 @@ function pKey(cid,y,m){return"c_"+cid+"_"+y+"_"+String(m).padStart(2,"0");}
 // Get effective value for a client in a given month (considering discount)
 function getClienteValorEfetivo(c,y,m){
   if(c.status==="pausa"||c.status==="inativo")return 0;
+  // Legacy clients without status field are active
   const ms=monthStr(y,m);
   if(c.descontoPct>0&&c.descontoIni&&c.descontoFim){
     if(ms>=c.descontoIni&&ms<=c.descontoFim){
@@ -683,6 +684,7 @@ function getClienteStatusMes(c,y,m){
   // Pausa or inactive
   if(c.status==="pausa")return"pausa";
   if(c.status==="inativo")return"inativo";
+  // Legacy: no status = ativo
   const valorEfetivo=getClienteValorEfetivo(c,y,m);
   const now=new Date();
   const isPastMonth=(y<now.getFullYear())||(y===now.getFullYear()&&m<now.getMonth());
@@ -750,11 +752,13 @@ function totColabsMes(y,m){
   const ms=monthStr(y,m);
   return DB.projetos.reduce((a,p)=>{
     if(p.status==="concluido")return a;
-    if(p.continuo==="sim"){
-      // Only mensal pagtype colabs count every month
-      return a+(p.colabs||[]).filter(c=>c.pagtype==="mensal").reduce((s,c)=>s+Number(c.valor||0),0);
-    }
-    return a+getProjColabPagoMes(p,ms);
+    // Mensal colabs auto-sum
+    const mensal=(p.colabs||[]).filter(c=>c.pagtype==="mensal").reduce((s,c)=>s+Number(c.valor||0),0);
+    // Non-mensal colabs: only count if paid this month
+    const nonMensal=(p.colabs||[]).filter(c=>c.pagtype!=="mensal").reduce((s,c)=>{
+      return s+(c.pagdatas||[]).filter(pd=>pd.pago&&pd.dataPago&&pd.dataPago.startsWith(ms)).reduce((t,pd)=>t+Number(pd.valor),0);
+    },0);
+    return a+mensal+nonMensal;
   },0);
 }
 
@@ -793,7 +797,7 @@ document.querySelectorAll(".overlay").forEach(o=>o.addEventListener("click",e=>{
 function popSel(selId){
   const s=document.getElementById(selId);if(!s)return;
   const cur=s.value;s.innerHTML='<option value="">Selecione</option>';
-  DB.clientes.filter(c=>c.status==="ativo").forEach(c=>{const o=document.createElement("option");o.value=c.nome;o.textContent=c.nome;s.appendChild(o);});
+  DB.clientes.filter(c=>!c.status||c.status==="ativo").forEach(c=>{const o=document.createElement("option");o.value=c.nome;o.textContent=c.nome;s.appendChild(o);});
   if(cur)s.value=cur;
 }
 
@@ -1376,7 +1380,7 @@ function renderPainel(){
 
   document.getElementById("painel-metrics").innerHTML=
     `<div class="metric"><div class="ml">Posts semana</div><div class="mv">${wP.length}</div></div>`+
-    `<div class="metric"><div class="ml">Clientes ativos</div><div class="mv">${DB.clientes.filter(c=>c.status==="ativo").length}</div></div>`+
+    `<div class="metric"><div class="ml">Clientes ativos</div><div class="mv">${DB.clientes.filter(c=>!c.status||c.status==="ativo").length}</div></div>`+
     `<div class="metric"><div class="ml">Projetos ativos</div><div class="mv">${DB.projetos.filter(p=>p.status==="andamento").length}</div></div>`+
     `<div class="metric"><div class="ml">No Instagram</div><div class="mv">${DB.posts.filter(p=>p.etapa===4&&p.data>=wd[0]&&p.data<=wd[6]).length}</div></div>`;
 
@@ -1385,7 +1389,7 @@ function renderPainel(){
   ).join("");
 
   const pcc=document.getElementById("painel-post-counter");pcc.innerHTML="";
-  DB.clientes.filter(c=>c.status==="ativo").forEach(c=>{
+  DB.clientes.filter(c=>!c.status||c.status==="ativo").forEach(c=>{
     const cp=wP.filter(p=>p.cliente===c.nome);
     const tot=cp.length,r=cp.filter(p=>p.tipo==="Reels").length,u=cp.filter(p=>p.tipo==="Post único").length,ca=cp.filter(p=>p.tipo==="Carrossel").length,ig=cp.filter(p=>p.etapa===4).length;
     const card=el("div","pcc");
@@ -1612,12 +1616,17 @@ function renderBalanco(m,y){
   const iaTotal=totIA();
 
   // Colabs recorrentes (mensais)
-  // Colabs recorrentes: only from continuo=sim projects, and only if colab pagtype=mensal
+  // Colabs recorrentes mensais: auto-sum every month (recorrente project + mensal pagtype)
   const colabsRec=DB.projetos.filter(p=>p.continuo==="sim"&&p.status!=="concluido").reduce((a,p)=>{
     return a+(p.colabs||[]).filter(c=>c.pagtype==="mensal").reduce((s,c)=>s+Number(c.valor||0),0);
   },0);
-  // Colabs avulsos: pagdatas marked pago with dataPago in this month (from avulso projects)
-  const colabsAvulsosMes=DB.projetos.filter(p=>p.continuo!=="sim"&&p.status!=="concluido").reduce((a,p)=>a+getProjColabPagoMes(p,ms),0);
+  // All other colab payments: sum pagdatas where pago=true AND dataPago in this month
+  // This covers: avulso project colabs + recorrente project colabs with integral/metade pagtype
+  const colabsAvulsosMes=DB.projetos.filter(p=>p.status!=="concluido").reduce((a,p)=>{
+    return a+(p.colabs||[]).filter(c=>c.pagtype!=="mensal").reduce((s,c)=>{
+      return s+(c.pagdatas||[]).filter(pd=>pd.pago&&pd.dataPago&&pd.dataPago.startsWith(ms)).reduce((t,pd)=>t+Number(pd.valor),0);
+    },0);
+  },0);
 
   const totalEntrou=cliRecebido+projRecorrentesVal+projAvulsosRecebidoMes;
   const totalSaiu=equipePago+colabsRec+colabsAvulsosMes+iaTotal;
@@ -1705,13 +1714,13 @@ function renderFinE(){
     if(p.status==="concluido")return;
     (p.colabs||[]).forEach(c=>{
       if(!c.nome)return;
-      const isRec=p.continuo==="sim"||c.pagtype==="mensal";
-      if(isRec){
+      if(c.pagtype==="mensal"){
+        // Mensal: show every month automatically
         colabsToShow.push({colab:c,proj:p,valor:Number(c.valor||0),isRec:true});
       } else {
-        const hasDatasThisMes=(c.pagdatas||[]).some(pd=>pd.date&&pd.date.startsWith(ms));
-        if(!hasDatasThisMes)return;
-        const valor=(c.pagdatas||[]).filter(pd=>pd.date&&pd.date.startsWith(ms)).reduce((a,pd)=>a+Number(pd.valor),0);
+        // Non-mensal: show if has any pagdatas (to allow marking payment)
+        if(!(c.pagdatas||[]).length)return;
+        const valor=Number(c.valor||0);
         colabsToShow.push({colab:c,proj:p,valor,isRec:false});
       }
     });
@@ -1724,7 +1733,7 @@ function renderFinE(){
     sepTr.appendChild(sepTd);tb.appendChild(sepTr);
 
     colabsToShow.forEach(({colab,proj,valor,isRec})=>{
-      const pagos=(colab.pagdatas||[]).filter(pd=>pd.pago&&(isRec?pd.dataPago&&pd.dataPago.startsWith(ms):true)).reduce((a,pd)=>a+Number(pd.valor),0);
+      const pagos=(colab.pagdatas||[]).filter(pd=>pd.pago).reduce((a,pd)=>a+Number(pd.valor),0);
       const isPago=pagos>=valor&&valor>0;
       const tr=document.createElement("tr");tr.className=isPago?"row-pago":"row-pendente";
       const tdN=document.createElement("td");tdN.style.fontWeight="700";tdN.textContent=colab.nome;
@@ -1832,9 +1841,11 @@ function renderProjetos(){
       const colH=el("div","","Colaboradores:");colH.style.cssText="font-size:12px;font-weight:700;color:#666;margin-bottom:.5rem";card.appendChild(colH);
       p.colabs.forEach(c=>{
         const colabPago=(c.pagdatas||[]).filter(pd=>pd.pago).reduce((a,pd)=>a+Number(pd.valor),0);
-        const cRow=el("div");cRow.style.cssText="display:flex;align-items:center;justify-content:space-between;background:#fff0f0;border-radius:6px;padding:.5rem .75rem;margin-bottom:.375rem;flex-wrap:wrap;gap:4px";
-        cRow.innerHTML=`<span><b>${c.nome}</b> <span style="font-size:11px;color:#888">${c.funcao}</span></span><span style="color:#a32d2d;font-weight:700">${fmtR(c.valor||0)}/proj${c.pagtype==="mensal"?" (mensal)":""}</span>`;
-        if(c.pagdatas?.length){const pct=c.valor>0?Math.round(colabPago/c.valor*100):0;cRow.innerHTML+=`<span style="font-size:11px;color:#888">Pago: ${fmtR(colabPago)} (${pct}%)</span>`;}
+        const colabPct=Number(c.valor||0)>0?Math.round(colabPago/Number(c.valor)*100):0;
+        const colabDone=colabPago>=Number(c.valor||0)&&Number(c.valor||0)>0;
+        const cRow=el("div");cRow.style.cssText=`display:flex;align-items:center;justify-content:space-between;background:${colabDone?"#eaf3de":"#fff0f0"};border-radius:6px;padding:.5rem .75rem;margin-bottom:.375rem;flex-wrap:wrap;gap:4px`;
+        cRow.innerHTML=`<span><b>${c.nome}</b> <span style="font-size:11px;color:#888">${c.funcao}</span></span><span style="color:${colabDone?"#3b6d11":"#a32d2d"};font-weight:700">${fmtR(c.valor||0)}/proj${c.pagtype==="mensal"?" (mensal)":""}</span>`;
+        if(c.pagdatas?.length){cRow.innerHTML+=`<span style="font-size:11px;color:${colabDone?"#3b6d11":"#888"}">Pago: ${fmtR(colabPago)} (${colabPct}%)</span>`;}
         card.appendChild(cRow);
       });
     }
