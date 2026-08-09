@@ -644,7 +644,7 @@ let ST={
 // ── UTILS ──────────────────────────────────────────────────
 function uid(){return Date.now()+"_"+Math.floor(Math.random()*99999);}
 function today(){return new Date().toISOString().slice(0,10);}
-function getMon(off){const d=new Date(),dy=d.getDay(),r=new Date(d);r.setDate(d.getDate()-dy+(off*7));return r;}
+function getMon(off){const d=new Date(),dy=d.getDay(),r=new Date(d);r.setDate(d.getDate()-(dy===0?6:dy-1)+(off*7));return r;}
 function weekDates(off){const m=getMon(off);return Array.from({length:7},(_,i)=>{const d=new Date(m);d.setDate(m.getDate()+i);return d.toISOString().slice(0,10)});}
 function fmt(s){if(!s)return "";const[y,mo,d]=s.split("-");return d+"/"+mo;}
 function fmtFull(s){if(!s)return "";const[y,mo,d]=s.split("-");return d+"/"+mo+"/"+y.slice(2);}
@@ -751,7 +751,8 @@ function totColabsMes(y,m){
   return DB.projetos.reduce((a,p)=>{
     if(p.status==="concluido")return a;
     if(p.continuo==="sim"){
-      return a+(p.colabs||[]).reduce((s,c)=>s+Number(c.valor||0),0);
+      // Only mensal pagtype colabs count every month
+      return a+(p.colabs||[]).filter(c=>c.pagtype==="mensal").reduce((s,c)=>s+Number(c.valor||0),0);
     }
     return a+getProjColabPagoMes(p,ms);
   },0);
@@ -1345,14 +1346,13 @@ function renderPainel(){
     const falta=valorEf-pago;
     if(st==="vencido")payAl+=`<div class="al al-danger">⚠ <b>${c.nome}</b> — ${MESES[m]}: não pagou (${fmtR(valorEf)})</div>`;
     else if(st==="parcial")payAl+=`<div class="al al-warning">💰 <b>${c.nome}</b> — pagou ${fmtR(pago)}, falta ${fmtR(falta)}</div>`;
-    else if(st==="pendente")payAl+=`<div class="al al-info">📅 <b>${c.nome}</b> — vence dia ${c.dia}/${m+1} (${fmtR(valorEf)})</div>`;
   });
   // Projeto alerts
   DB.projetos.forEach(p=>{
     if(p.status==="concluido")return;
     const hoje2=hoje;
     (p.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje2)payAl+=`<div class="al al-warning">💼 <b>${p.cliente}</b> — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});
-    (p.colabs||[]).forEach(c=>{(c.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje2)payAl+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});});
+    (p.colabs||[]).forEach(c=>{(c.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<hoje2)payAl+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});});
     if(p.prazo&&p.prazo<hoje2&&p.status!=="concluido")payAl+=`<div class="al al-warning">⏰ Projeto <b>${p.cliente}</b> (${p.tipo}) passou do prazo: ${fmt(p.prazo)}</div>`;
   });
 
@@ -1612,7 +1612,11 @@ function renderBalanco(m,y){
   const iaTotal=totIA();
 
   // Colabs recorrentes (mensais)
-  const colabsRec=DB.projetos.filter(p=>p.continuo==="sim"&&p.status!=="concluido").reduce((a,p)=>a+(p.colabs||[]).reduce((s,c)=>s+Number(c.valor||0),0),0);
+  // Colabs recorrentes: only from continuo=sim projects, and only if colab pagtype=mensal
+  const colabsRec=DB.projetos.filter(p=>p.continuo==="sim"&&p.status!=="concluido").reduce((a,p)=>{
+    return a+(p.colabs||[]).filter(c=>c.pagtype==="mensal").reduce((s,c)=>s+Number(c.valor||0),0);
+  },0);
+  // Colabs avulsos: pagdatas marked pago with dataPago in this month (from avulso projects)
   const colabsAvulsosMes=DB.projetos.filter(p=>p.continuo!=="sim"&&p.status!=="concluido").reduce((a,p)=>a+getProjColabPagoMes(p,ms),0);
 
   const totalEntrou=cliRecebido+projRecorrentesVal+projAvulsosRecebidoMes;
@@ -1632,10 +1636,10 @@ function renderBalanco(m,y){
     </div>
     <div>
       <div style="font-size:12px;font-weight:700;color:#a32d2d;margin-bottom:.5rem">📤 SAÍDAS</div>
-      <div class="balanco-row"><span>Equipe fixa (paga)</span><span style="color:#a32d2d;font-weight:600">${fmtR(equipePago)}</span></div>
-      <div class="balanco-row" style="font-size:11px;color:#999"><span>Total equipe/mês</span><span>${fmtR(equipeTotal)}</span></div>
-      <div class="balanco-row"><span>Colaboradores recorrentes</span><span style="color:#a32d2d;font-weight:600">${fmtR(colabsRec)}</span></div>
-      <div class="balanco-row"><span>Colaboradores avulsos (pago)</span><span style="color:#a32d2d;font-weight:600">${fmtR(colabsAvulsosMes)}</span></div>
+      <div class="balanco-row"><span>Equipe fixa (marcada como paga)</span><span style="color:#a32d2d;font-weight:600">${fmtR(equipePago)}</span></div>
+      <div class="balanco-row" style="font-size:11px;color:#999"><span>↳ Total equipe fixa/mês (referência)</span><span>${fmtR(equipeTotal)}</span></div>
+      <div class="balanco-row"><span>Colaboradores proj. recorrentes</span><span style="color:#a32d2d;font-weight:600">${fmtR(colabsRec)}</span></div>
+      <div class="balanco-row"><span>Colaboradores proj. avulsos (pago)</span><span style="color:#a32d2d;font-weight:600">${fmtR(colabsAvulsosMes)}</span></div>
       <div class="balanco-row"><span>Ferramentas de IA</span><span style="color:#a32d2d;font-weight:600">${fmtR(iaTotal)}</span></div>
       <div class="balanco-total" style="background:#fff0f0;margin-top:.5rem"><span>Total saiu</span><span style="color:#a32d2d;font-size:16px">${fmtR(totalSaiu)}</span></div>
     </div>
@@ -1656,48 +1660,101 @@ function renderFinE(){
   const m=ST.feqM,y=ST.feqY;
   const tb=document.getElementById("fin-et");tb.innerHTML="";
   const equipe=DB.equipe||[];
-  if(!equipe.length){tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum membro</td></tr>';}
-  else equipe.forEach(f=>{
+
+  // Equipe fixa
+  if(!equipe.length){
+    const tr=document.createElement("tr");
+    const td=document.createElement("td");td.colSpan=6;td.className="empty";td.textContent="Nenhum membro";
+    tr.appendChild(td);tb.appendChild(tr);
+  }
+  equipe.forEach(f=>{
     const paid=!!(DB.payments["f_"+f.id+"_"+y+"_"+m]);
-    const st=paid?"pago":new Date().getDate()>f.dia?"vencido":"pendente";
+    const now=new Date();
+    const isPastMonth=(y<now.getFullYear())||(y===now.getFullYear()&&m<now.getMonth());
+    const st=paid?"pago":(isPastMonth||now.getDate()>f.dia)?"vencido":"pendente";
     const tr=document.createElement("tr");tr.className="row-"+st;
-    // Find projetos this member collaborates on
     const projVinc=DB.projetos.filter(p=>p.status!=="concluido"&&(p.colabs||[]).some(c=>c.nome===f.nome));
-    const projStr=projVinc.length?projVinc.map(p=>`<div style="font-size:10px;color:#534ab7">🔗 ${p.cliente} — ${p.tipo}</div>`).join(""):"";
-    tr.innerHTML=`<td style="font-weight:700">${f.nome}${projStr}</td><td>${f.funcao||""}</td><td>${fmtR(f.valor)}</td><td>Dia ${f.dia}</td><td><span class="badge b${st.slice(0,2)}">${{pago:"Pago",pendente:"Pendente",vencido:"Vencido"}[st]}</span></td>`;
-    const tdA=document.createElement("td");
+    // Build nome cell
+    const tdNome=document.createElement("td");tdNome.style.fontWeight="700";
+    tdNome.textContent=f.nome;
+    projVinc.forEach(p=>{const d=el("div");d.style.cssText="font-size:10px;color:#534ab7";d.textContent="🔗 "+p.cliente+" — "+p.tipo;tdNome.appendChild(d);});
+    const tdFuncao=document.createElement("td");tdFuncao.textContent=f.funcao||"";
+    const tdValor=document.createElement("td");tdValor.textContent=fmtR(f.valor);
+    const tdDia=document.createElement("td");tdDia.textContent="Dia "+f.dia;
+    const tdSt=document.createElement("td");
+    const stBadge=el("span","badge b"+st.slice(0,2),{pago:"Pago",pendente:"Pendente",vencido:"Vencido"}[st]);
+    tdSt.appendChild(stBadge);
+    const tdActs=document.createElement("td");
     const acts=el("div");acts.style.cssText="display:flex;gap:6px;align-items:center;flex-wrap:wrap";
-    const payBtn=el("button","btn btn-sm",paid?"✓ Desmarcar":"✓ Marcar pago");
-    payBtn.onclick=async()=>{DB.payments["f_"+f.id+"_"+y+"_"+m]=!DB.payments["f_"+f.id+"_"+y+"_"+m];await saveDB();};
-    acts.appendChild(payBtn);acts.appendChild(btnEdit(()=>openEquipeMemberModal(f.id)));
-    acts.appendChild(btnDel(async()=>{if(!confirm("Remover?"))return;DB.equipe=DB.equipe.filter(x=>x.id!==f.id);await saveDB();}));
-    tdA.appendChild(acts);tr.appendChild(tdA);tb.appendChild(tr);
+    const payBtn=el("button","btn btn-sm",paid?"Desmarcar":"✓ Marcar pago");
+    const fid=f.id;
+    payBtn.onclick=async()=>{DB.payments["f_"+fid+"_"+y+"_"+m]=!DB.payments["f_"+fid+"_"+y+"_"+m];await saveDB();renderFinE();};
+    acts.appendChild(payBtn);
+    const editBtn=btnEdit(()=>openEquipeMemberModal(fid));
+    const delBtn=btnDel(async()=>{if(!confirm("Remover?"))return;DB.equipe=DB.equipe.filter(x=>x.id!==fid);await saveDB();});
+    acts.appendChild(editBtn);acts.appendChild(delBtn);
+    tdActs.appendChild(acts);
+    tr.appendChild(tdNome);tr.appendChild(tdFuncao);tr.appendChild(tdValor);tr.appendChild(tdDia);tr.appendChild(tdSt);tr.appendChild(tdActs);
+    tb.appendChild(tr);
   });
-  // Also show colabs from projects this month
+
+  // Separator + colabs from projects
   const ms=monthStr(y,m);
-  let colabRows="";
+  const colabsToShow=[];
   DB.projetos.forEach(p=>{
     if(p.status==="concluido")return;
     (p.colabs||[]).forEach(c=>{
       if(!c.nome)return;
-      const pagMes=c.continuo==="mensal"||(p.continuo==="sim");
-      const valor=pagMes?Number(c.valor||0):(c.pagdatas||[]).filter(pd=>pd.date&&pd.date.startsWith(ms)).reduce((a,pd)=>a+Number(pd.valor),0);
-      if(!pagMes&&!(c.pagdatas||[]).some(pd=>pd.date&&pd.date.startsWith(ms)))return;
-      const pago=(c.pagdatas||[]).filter(pd=>pd.pago&&pd.dataPago&&pd.dataPago.startsWith(ms)).reduce((a,pd)=>a+Number(pd.valor),0);
-      colabRows+=`<tr><td style="font-weight:700">${c.nome}<div style="font-size:10px;color:#534ab7">Projeto: ${p.cliente} — ${p.tipo}</div></td><td>${c.funcao||"Colaborador"}</td><td>${fmtR(valor)}</td><td>Conforme projeto</td><td><span class="badge ${pago>=valor&&valor>0?"bpago":"bpendente"}">${pago>=valor&&valor>0?"Pago":"Pendente"}</span></td><td><button class="btn btn-sm" onclick="openProjetoPagtoModal('${p.id}')">$ Pagtos</button></td></tr>`;
+      const isRec=p.continuo==="sim"||c.pagtype==="mensal";
+      if(isRec){
+        colabsToShow.push({colab:c,proj:p,valor:Number(c.valor||0),isRec:true});
+      } else {
+        const hasDatasThisMes=(c.pagdatas||[]).some(pd=>pd.date&&pd.date.startsWith(ms));
+        if(!hasDatasThisMes)return;
+        const valor=(c.pagdatas||[]).filter(pd=>pd.date&&pd.date.startsWith(ms)).reduce((a,pd)=>a+Number(pd.valor),0);
+        colabsToShow.push({colab:c,proj:p,valor,isRec:false});
+      }
     });
   });
-  if(colabRows){
-    tb.innerHTML+='<tr><td colspan="6" style="background:#f5f5f0;font-size:12px;font-weight:700;color:#666;padding:8px 12px">Colaboradores de projetos</td></tr>'+colabRows;
+  if(colabsToShow.length){
+    const sepTr=document.createElement("tr");
+    const sepTd=document.createElement("td");sepTd.colSpan=6;
+    sepTd.style.cssText="background:#f5f5f0;font-size:12px;font-weight:700;color:#666;padding:8px 12px";
+    sepTd.textContent="Colaboradores de projetos";
+    sepTr.appendChild(sepTd);tb.appendChild(sepTr);
+
+    colabsToShow.forEach(({colab,proj,valor,isRec})=>{
+      const pagos=(colab.pagdatas||[]).filter(pd=>pd.pago&&(isRec?pd.dataPago&&pd.dataPago.startsWith(ms):true)).reduce((a,pd)=>a+Number(pd.valor),0);
+      const isPago=pagos>=valor&&valor>0;
+      const tr=document.createElement("tr");tr.className=isPago?"row-pago":"row-pendente";
+      const tdN=document.createElement("td");tdN.style.fontWeight="700";tdN.textContent=colab.nome;
+      const sub=el("div");sub.style.cssText="font-size:10px;color:#534ab7";sub.textContent="Projeto: "+proj.cliente+" — "+proj.tipo+(isRec?" (mensal)":"");
+      tdN.appendChild(sub);
+      const tdF=document.createElement("td");tdF.textContent=colab.funcao||"Colaborador";
+      const tdV=document.createElement("td");tdV.textContent=fmtR(valor)+(isRec?"/mês":"");
+      const tdD=document.createElement("td");tdD.textContent="Conforme projeto";
+      const tdS=document.createElement("td");
+      tdS.appendChild(el("span","badge "+(isPago?"bpago":"bpendente"),isPago?"Pago":"Pendente"));
+      const tdA=document.createElement("td");
+      const pgBtn=el("button","btn btn-sm","$ Pagtos");
+      const pid=proj.id;
+      pgBtn.onclick=()=>openProjetoPagtoModal(pid);
+      tdA.appendChild(pgBtn);
+      tr.appendChild(tdN);tr.appendChild(tdF);tr.appendChild(tdV);tr.appendChild(tdD);tr.appendChild(tdS);tr.appendChild(tdA);
+      tb.appendChild(tr);
+    });
   }
+
   const totPago=equipe.reduce((a,f)=>a+(DB.payments["f_"+f.id+"_"+y+"_"+m]?Number(f.valor):0),0);
   document.getElementById("feq-totals").innerHTML=
-    `<div class="metric"><div class="ml">Equipe total/mês</div><div class="mv" style="font-size:16px">${fmtR(totEquipe())}</div></div>`+
-    `<div class="metric"><div class="ml">Pago no mês</div><div class="mv" style="font-size:16px;color:#3b6d11">${fmtR(totPago)}</div></div>`+
+    `<div class="metric"><div class="ml">Equipe fixa/mês</div><div class="mv" style="font-size:16px">${fmtR(totEquipe())}</div></div>`+
+    `<div class="metric"><div class="ml">Pago este mês</div><div class="mv" style="font-size:16px;color:#3b6d11">${fmtR(totPago)}</div></div>`+
     `<div class="metric"><div class="ml">Pendente</div><div class="mv" style="font-size:16px;color:#854f0b">${fmtR(totEquipe()-totPago)}</div></div>`;
 }
 
 window.openProjetoPagtoModal=openProjetoPagtoModal;
+window.openEquipeMemberModal=openEquipeMemberModal;
+window.openClienteModal=openClienteModal;
 
 // ── PROJETOS PAGE ─────────────────────────────────────────
 document.getElementById("proj-tabs").addEventListener("click",e=>{
