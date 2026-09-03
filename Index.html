@@ -462,11 +462,12 @@ tr.row-desconto td{background:#f5f0ff}
   </div>
   <div class="irow">
     <div class="field"><label>Data de início</label><input type="date" id="pr-inicio"></div>
-    <div class="field"><label>Prazo / Entrega</label><input type="date" id="pr-prazo"></div>
+    <div class="field"><label id="pr-prazo-label">Prazo / Entrega</label><input type="date" id="pr-prazo"></div>
+    <div class="field" id="pr-diavenc-field" style="display:none"><label>Dia de vencimento</label><input type="number" id="pr-diavenc" min="1" max="31" placeholder="10"></div>
   </div>
 
-  <div class="sec-sep">💰 Forma de pagamento do cliente</div>
-  <div class="irow">
+  <div class="sec-sep" id="pr-pag-sec">💰 Forma de pagamento do cliente</div>
+  <div class="irow" id="pr-pagrow">
     <div class="field"><label>Tipo</label>
       <select id="pr-pagtype">
         <option value="integral">100% à vista</option>
@@ -483,6 +484,9 @@ tr.row-desconto td{background:#f5f0ff}
   <div id="pr-pagdatas-block" style="display:none;background:#eaf3de;border-radius:8px;padding:.875rem;margin-bottom:.875rem">
     <div style="font-size:12px;font-weight:700;color:#3b6d11;margin-bottom:.5rem">Datas de recebimento:</div>
     <div id="pr-pagdatas-list"></div>
+  </div>
+  <div id="pr-rec-note" style="display:none;background:#eeedfe;border:1px solid #c5c1f7;border-radius:8px;padding:.875rem;margin-bottom:.875rem;font-size:12px;color:#534ab7">
+    🔁 <b>Projeto recorrente.</b> A partir da data de início ele gera uma competência por mês automaticamente. Os valores acima são o <b>valor mensal</b>. Cada mês recebe entrada e saídas próprias na tela <b>$ Pagamentos mensais</b>. Preencha o campo Encerramento só quando o contrato terminar.
   </div>
 
   <div class="sec-sep">👥 Colaboradores neste projeto</div>
@@ -524,6 +528,15 @@ tr.row-desconto td{background:#f5f0ff}
   <input type="hidden" id="mpp-pid">
   <div id="mpp-list"></div>
   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:1rem"><button class="btn" id="mpp-cancel">Fechar</button></div>
+</div></div>
+
+<!-- Pagamentos mensais (projeto recorrente) -->
+<div class="overlay" id="modal-proj-mes"><div class="mbox mbox-lg">
+  <div class="mhead"><h3 id="mpm-title">Pagamentos mensais</h3><button class="btn btn-icon" id="mpm-close">✕</button></div>
+  <div style="font-size:12px;color:#888;margin-bottom:.5rem">Cada mês tem entrada e saídas próprias. Escolha a competência:</div>
+  <div class="mtabs" id="mpm-tabs"></div>
+  <div id="mpm-body"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:1rem"><button class="btn" id="mpm-cancel">Fechar</button></div>
 </div></div>
 
 <!-- Acessos -->
@@ -581,7 +594,7 @@ const PLAT_TEMPLATES=[
 ];
 
 // DB: projetos replaces freelas
-let DB={posts:[],videos:[],clientes:[],equipe:[],projetos:[],ias:[],payments:{},pagtos:{},meta:{s:0,m:0},acessos:[]};
+let DB={posts:[],videos:[],clientes:[],equipe:[],projetos:[],ias:[],payments:{},pagtos:{},projMeses:{},meta:{s:0,m:0},acessos:[]};
 
 function ss(t,m){const e=document.getElementById("sync-status");e.textContent=m;e.className="sync-status sync-"+t;}
 let saving=false;
@@ -603,12 +616,17 @@ onSnapshot(DOC,(snap)=>{
     // Support both old "freelas" and new "projetos"
     DB.projetos=d.projetos||(d.freelas||[]).map(f=>migrateFreela(f));
     DB.ias=d.ias||[];DB.payments=d.payments||{};DB.pagtos=d.pagtos||{};
+    DB.projMeses=d.projMeses||{};
     DB.meta=d.meta||{s:0,m:0};DB.acessos=d.acessos||[];
   }
   ss("ok","☁ Sincronizado");
+  if(normalizarRecorrentes()){saveDB();}
   renderAll();
   if(document.getElementById("modal-pagto").classList.contains("open")&&ST._pagtoCtx){
     renderPagtoModal(ST._pagtoCtx.cid,ST._pagtoCtx.y,ST._pagtoCtx.m);
+  }
+  if(document.getElementById("modal-proj-mes").classList.contains("open")&&ST.pmesPid){
+    renderProjMesModal();
   }
 },(err)=>{clearTimeout(ct);ss("err","✕ "+err.code);renderAll();});
 
@@ -639,12 +657,13 @@ let ST={
   sortC:{col:"nome",dir:1},
   kSel:new Set(),
   _pagtoCtx:null,
+  pmesPid:null,pmesMS:null,
 };
 
 // ── UTILS ──────────────────────────────────────────────────
 function uid(){return Date.now()+"_"+Math.floor(Math.random()*99999);}
 function today(){return new Date().toISOString().slice(0,10);}
-function getMon(off){const d=new Date(),dy=d.getDay(),r=new Date(d);r.setDate(d.getDate()-(dy===0?6:dy-1)+(off*7));return r;}
+function getMon(off){const d=new Date(),dy=d.getDay(),r=new Date(d);r.setDate(d.getDate()-dy+(off*7));return r;}
 function weekDates(off){const m=getMon(off);return Array.from({length:7},(_,i)=>{const d=new Date(m);d.setDate(m.getDate()+i);return d.toISOString().slice(0,10)});}
 function fmt(s){if(!s)return "";const[y,mo,d]=s.split("-");return d+"/"+mo;}
 function fmtFull(s){if(!s)return "";const[y,mo,d]=s.split("-");return d+"/"+mo+"/"+y.slice(2);}
@@ -670,7 +689,6 @@ function pKey(cid,y,m){return"c_"+cid+"_"+y+"_"+String(m).padStart(2,"0");}
 // Get effective value for a client in a given month (considering discount)
 function getClienteValorEfetivo(c,y,m){
   if(c.status==="pausa"||c.status==="inativo")return 0;
-  // Legacy clients without status field are active
   const ms=monthStr(y,m);
   if(c.descontoPct>0&&c.descontoIni&&c.descontoFim){
     if(ms>=c.descontoIni&&ms<=c.descontoFim){
@@ -684,7 +702,6 @@ function getClienteStatusMes(c,y,m){
   // Pausa or inactive
   if(c.status==="pausa")return"pausa";
   if(c.status==="inativo")return"inativo";
-  // Legacy: no status = ativo
   const valorEfetivo=getClienteValorEfetivo(c,y,m);
   const now=new Date();
   const isPastMonth=(y<now.getFullYear())||(y===now.getFullYear()&&m<now.getMonth());
@@ -732,6 +749,121 @@ function getProjColabPagoMes(p,ms){
   },0);
 }
 
+// ── PROJETO RECORRENTE: COMPETÊNCIAS MENSAIS ───────────────
+// Cada mês de um projeto recorrente vira uma "competência" própria,
+// com entrada do cliente e saídas dos colaboradores independentes.
+function isRec(p){return p&&p.continuo==="sim";}
+function pmKey(pid,ms){return"pm_"+pid+"_"+ms;}
+function curMS(){const d=new Date();return monthStr(d.getFullYear(),d.getMonth());}
+function msNext(ms){let[y,m]=ms.split("-").map(Number);m++;if(m>12){m=1;y++}return y+"-"+String(m).padStart(2,"0");}
+function msLabel(ms){const[y,m]=ms.split("-").map(Number);return MESES[m-1].slice(0,3)+" "+y;}
+function msLabelFull(ms){const[y,m]=ms.split("-").map(Number);return MESES[m-1]+"/"+y;}
+
+function getPM(pid,ms){return(DB.projMeses||{})[pmKey(pid,ms)]||null;}
+function ensurePM(pid,ms){
+  const k=pmKey(pid,ms);
+  if(!DB.projMeses)DB.projMeses={};
+  if(!DB.projMeses[k])DB.projMeses[k]={entradas:[],colabs:{}};
+  if(!DB.projMeses[k].entradas)DB.projMeses[k].entradas=[];
+  if(!DB.projMeses[k].colabs)DB.projMeses[k].colabs={};
+  return DB.projMeses[k];
+}
+function limpaPM(pid,ms){
+  const k=pmKey(pid,ms),r=DB.projMeses[k];
+  if(!r)return;
+  const temEnt=(r.entradas||[]).length;
+  const temCol=Object.values(r.colabs||{}).some(c=>(c.pagtos||[]).length);
+  if(!temEnt&&!temCol&&r.valorCliente===undefined)delete DB.projMeses[k];
+}
+
+// Lista de meses (competências) que o projeto recorrente já gerou
+function projCompetencias(p){
+  if(!isRec(p)||!p.inicio)return[];
+  const ini=p.inicio.slice(0,7);
+  let fim=curMS();
+  if(p.prazo){const f=p.prazo.slice(0,7);if(f<fim)fim=f;}
+  if(ini>fim)return[ini];
+  const out=[];let cur=ini,guard=0;
+  while(cur<=fim&&guard++<400){out.push(cur);cur=msNext(cur);}
+  return out;
+}
+function projTemCompetencia(p,ms){return projCompetencias(p).indexOf(ms)>=0;}
+
+function projMesValor(p,ms){
+  const r=getPM(p.id,ms);
+  return r&&r.valorCliente!==undefined&&r.valorCliente!==null?Number(r.valorCliente):Number(p.valor||0);
+}
+function projMesRecebido(p,ms){
+  const r=getPM(p.id,ms);
+  return r?(r.entradas||[]).reduce((a,e)=>a+Number(e.valor||0),0):0;
+}
+function projMesColabValor(p,c,ms){
+  const r=getPM(p.id,ms);
+  const cc=r&&r.colabs?r.colabs[c.id]:null;
+  return cc&&cc.valor!==undefined&&cc.valor!==null?Number(cc.valor):Number(c.valor||0);
+}
+function projMesColabPago(p,c,ms){
+  const r=getPM(p.id,ms);
+  const cc=r&&r.colabs?r.colabs[c.id]:null;
+  return cc?(cc.pagtos||[]).reduce((a,e)=>a+Number(e.valor||0),0):0;
+}
+function projMesColabsValor(p,ms){return(p.colabs||[]).reduce((a,c)=>a+projMesColabValor(p,c,ms),0);}
+function projMesColabsPago(p,ms){return(p.colabs||[]).reduce((a,c)=>a+projMesColabPago(p,c,ms),0);}
+
+function projDiaVenc(p){
+  const d=parseInt(p.diaVenc);
+  if(d>=1&&d<=31)return d;
+  if(p.inicio)return Number(p.inicio.slice(8,10))||10;
+  return 10;
+}
+// pago | parcial | vencido | pendente
+function projMesStatus(p,ms){
+  const prev=projMesValor(p,ms),rec=projMesRecebido(p,ms);
+  if(prev>0&&rec>=prev)return"pago";
+  if(rec>0)return"parcial";
+  const now=new Date(),atual=curMS();
+  if(ms<atual)return"vencido";
+  if(ms===atual)return now.getDate()>projDiaVenc(p)?"vencido":"pendente";
+  return"pendente";
+}
+function projMesesEmAberto(p){
+  return projCompetencias(p).filter(ms=>{
+    const st=projMesStatus(p,ms);
+    const colabFalta=(p.colabs||[]).some(c=>projMesColabPago(p,c,ms)<projMesColabValor(p,c,ms));
+    return st!=="pago"||colabFalta;
+  });
+}
+
+// Garante id em colaborador e migra o formato antigo (pagdatas soltas) para competências
+function normalizarRecorrentes(){
+  let mudou=false;
+  (DB.projetos||[]).forEach(p=>{
+    (p.colabs||[]).forEach(c=>{if(!c.id){c.id=uid();mudou=true;}});
+    if(!isRec(p)||p.recMigrado)return;
+    const base=(p.inicio||today()).slice(0,7);
+    (p.pagdatas||[]).forEach(pd=>{
+      if(!pd.pago)return;
+      const ms=((pd.dataPago||pd.date||p.inicio||today())+"").slice(0,7);
+      const r=ensurePM(p.id,ms||base);
+      r.entradas.push({valor:Number(pd.valor)||Number(p.valor)||0,data:pd.dataPago||pd.date||"",obs:"migrado"});
+      mudou=true;
+    });
+    (p.colabs||[]).forEach(c=>{
+      (c.pagdatas||[]).forEach(pd=>{
+        if(!pd.pago)return;
+        const ms=((pd.dataPago||pd.date||p.inicio||today())+"").slice(0,7);
+        const r=ensurePM(p.id,ms||base);
+        if(!r.colabs[c.id])r.colabs[c.id]={pagtos:[]};
+        if(!r.colabs[c.id].pagtos)r.colabs[c.id].pagtos=[];
+        r.colabs[c.id].pagtos.push({valor:Number(pd.valor)||Number(c.valor)||0,data:pd.dataPago||pd.date||"",obs:"migrado"});
+        mudou=true;
+      });
+    });
+    p.recMigrado=true;mudou=true;
+  });
+  return mudou;
+}
+
 // ── TOTALS ─────────────────────────────────────────────────
 function totEquipe(){return(DB.equipe||[]).reduce((a,m)=>a+Number(m.valor),0);}
 function totIA(){return(DB.ias||[]).reduce((a,x)=>a+Number(x.valor),0);}
@@ -740,25 +872,40 @@ function totGastos(){return totEquipe()+totIA();}
 function totClientesAtivos(y,m){
   return DB.clientes.reduce((a,c)=>a+getClienteValorEfetivo(c,y,m),0);
 }
+// Recebido de verdade no mês
 function totProjRec(y,m){
   const ms=monthStr(y,m);
   return DB.projetos.reduce((a,p)=>{
+    if(isRec(p))return projTemCompetencia(p,ms)?a+projMesRecebido(p,ms):a;
     if(p.status==="concluido")return a;
-    if(p.continuo==="sim")return a+Number(p.valor);
     return a+getProjRecebidoMes(p,ms);
   },0);
 }
+// Previsto (contratado) no mês, recebido ou não
+function totProjPrevisto(y,m){
+  const ms=monthStr(y,m);
+  return DB.projetos.reduce((a,p)=>{
+    if(isRec(p))return projTemCompetencia(p,ms)?a+projMesValor(p,ms):a;
+    if(p.status==="concluido")return a;
+    return a+(p.pagdatas||[]).filter(pd=>pd.date&&pd.date.startsWith(ms)).reduce((s,pd)=>s+Number(pd.valor||0),0);
+  },0);
+}
+// Pago de verdade aos colaboradores no mês
 function totColabsMes(y,m){
   const ms=monthStr(y,m);
   return DB.projetos.reduce((a,p)=>{
+    if(isRec(p))return projTemCompetencia(p,ms)?a+projMesColabsPago(p,ms):a;
     if(p.status==="concluido")return a;
-    // Mensal colabs auto-sum
-    const mensal=(p.colabs||[]).filter(c=>c.pagtype==="mensal").reduce((s,c)=>s+Number(c.valor||0),0);
-    // Non-mensal colabs: only count if paid this month
-    const nonMensal=(p.colabs||[]).filter(c=>c.pagtype!=="mensal").reduce((s,c)=>{
-      return s+(c.pagdatas||[]).filter(pd=>pd.pago&&pd.dataPago&&pd.dataPago.startsWith(ms)).reduce((t,pd)=>t+Number(pd.valor),0);
-    },0);
-    return a+mensal+nonMensal;
+    return a+getProjColabPagoMes(p,ms);
+  },0);
+}
+// Previsto aos colaboradores no mês
+function totColabsPrevistoMes(y,m){
+  const ms=monthStr(y,m);
+  return DB.projetos.reduce((a,p)=>{
+    if(isRec(p))return projTemCompetencia(p,ms)?a+projMesColabsValor(p,ms):a;
+    if(p.status==="concluido")return a;
+    return a+(p.colabs||[]).reduce((s,c)=>s+(c.pagdatas||[]).filter(pd=>pd.date&&pd.date.startsWith(ms)).reduce((x,pd)=>x+Number(pd.valor||0),0),0);
   },0);
 }
 
@@ -797,7 +944,7 @@ document.querySelectorAll(".overlay").forEach(o=>o.addEventListener("click",e=>{
 function popSel(selId){
   const s=document.getElementById(selId);if(!s)return;
   const cur=s.value;s.innerHTML='<option value="">Selecione</option>';
-  DB.clientes.filter(c=>!c.status||c.status==="ativo").forEach(c=>{const o=document.createElement("option");o.value=c.nome;o.textContent=c.nome;s.appendChild(o);});
+  DB.clientes.filter(c=>c.status==="ativo").forEach(c=>{const o=document.createElement("option");o.value=c.nome;o.textContent=c.nome;s.appendChild(o);});
   if(cur)s.value=cur;
 }
 
@@ -968,22 +1115,23 @@ function buildColabRow(colab){
   ["Editor","Designer","Desenvolvedor","Redator","Gestor de Ads","Construtor de Site","Colaborador","Outro"].forEach(op=>{const o=document.createElement("option");o.value=op;o.textContent=op;funcS.appendChild(o);});
   funcS.value=colab?.funcao||"Colaborador";
   funcF.appendChild(funcS);
-  const valF=el("div","field");valF.innerHTML='<label>Valor (R$)</label>';
+  const valF=el("div","field");valF.innerHTML='<label class="colab-valor-label">Valor (R$)</label>';
   const valI=el("input");valI.type="number";valI.placeholder="0";valI.value=colab?.valor||"";valI.className="colab-valor";valI.step="0.01";
   valF.appendChild(valI);
   const rmBtn=el("button","btn btn-sm btn-del","✕ Remover");rmBtn.style.cssText="align-self:flex-end;white-space:nowrap";
   rmBtn.onclick=()=>wrap.remove();
   row1.appendChild(nomeF);row1.appendChild(funcF);row1.appendChild(valF);row1.appendChild(rmBtn);
   wrap.appendChild(row1);
+  wrap.dataset.colabId=colab?.id||"";
   // Payment for colab
-  const row2=el("div");row2.style.cssText="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:.5rem";
+  const row2=el("div","colab-pag-wrap");row2.style.cssText="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:.5rem";
   const ptF=el("div","field");ptF.innerHTML='<label>Pagamento ao colaborador</label>';
   const ptS=el("select");ptS.className="colab-pagtype";
   [{v:"integral",l:"100% à vista"},{v:"metade",l:"50%+50%"},{v:"mensal",l:"Mensal (recorrente)"}].forEach(op=>{const o=document.createElement("option");o.value=op.v;o.textContent=op.l;ptS.appendChild(o);});
   ptS.value=colab?.pagtype||"integral";
   ptF.appendChild(ptS);
   const genBtn=el("button","btn btn-sm","Gerar datas ↓");genBtn.style.cssText="align-self:flex-end";
-  const datasDiv=el("div");datasDiv.className="colab-datas-wrap";datasDiv.style.display="none";
+  const datasDiv=el("div");datasDiv.className="colab-datas-wrap colab-pag-wrap";datasDiv.style.display="none";
   const datasLabel=el("div","","Datas de pagamento ao colaborador:");datasLabel.style.cssText="font-size:12px;color:#a32d2d;font-weight:700;margin-bottom:.5rem";
   const datasList=el("div");datasList.className="colab-datas-list";
   datasDiv.appendChild(datasLabel);datasDiv.appendChild(datasList);
@@ -1019,6 +1167,7 @@ function getColabsFromModal(){
     const funcao=wrap.querySelector(".colab-funcao")?.value||"Colaborador";
     const valor=parseFloat(wrap.querySelector(".colab-valor")?.value)||0;
     const pagtype=wrap.querySelector(".colab-pagtype")?.value||"integral";
+    const id=wrap.dataset.colabId||uid();
     const pagdatas=[];
     wrap.querySelectorAll(".colab-datas-list > div").forEach(row=>{
       const lbl=row.querySelector("span")?.textContent||"";
@@ -1026,10 +1175,32 @@ function getColabsFromModal(){
       const val=parseFloat(row.querySelector(".cd-valor")?.value)||0;
       pagdatas.push({label:lbl,date,valor:val,pago:false,dataPago:""});
     });
-    colabs.push({nome,funcao,valor,pagtype,pagdatas});
+    colabs.push({id,nome,funcao,valor,pagtype,pagdatas});
   });
   return colabs;
 }
+
+// Mostra/esconde o que só faz sentido em projeto avulso ou só em recorrente
+function applyContinuoUI(){
+  const rec=document.getElementById("pr-continuo").value==="sim";
+  document.getElementById("pr-pag-sec").style.display=rec?"none":"";
+  document.getElementById("pr-pagrow").style.display=rec?"none":"";
+  document.getElementById("pr-rec-note").style.display=rec?"":"none";
+  document.getElementById("pr-diavenc-field").style.display=rec?"":"none";
+  document.getElementById("pr-prazo-label").textContent=rec?"Encerramento (opcional)":"Prazo / Entrega";
+  const pdb=document.getElementById("pr-pagdatas-block");
+  if(rec)pdb.style.display="none";
+  else if(document.getElementById("pr-pagdatas-list").children.length)pdb.style.display="";
+  document.querySelectorAll(".colab-pag-wrap").forEach(w=>{
+    if(rec){w.style.display="none";return;}
+    if(w.classList.contains("colab-datas-wrap")){
+      const lst=w.querySelector(".colab-datas-list");
+      w.style.display=lst&&lst.children.length?"":"none";
+    } else w.style.display="";
+  });
+  document.querySelectorAll(".colab-valor-label").forEach(l=>{l.textContent=rec?"Valor por mês (R$)":"Valor (R$)";});
+}
+document.getElementById("pr-continuo").onchange=applyContinuoUI;
 
 document.getElementById("pr-pagtype").onchange=function(){
   document.getElementById("pr-nparcelas-block").style.display=this.value==="parcelado"?"":"none";
@@ -1040,7 +1211,8 @@ document.getElementById("pr-gerar-datas").onclick=()=>{
   buildProjDatas(tipo,n,[],"pr-pagdatas-list");
 };
 document.getElementById("pr-add-colab").onclick=()=>{
-  document.getElementById("pr-colabs-list").appendChild(buildColabRow(null));
+  document.getElementById("pr-colabs-list").appendChild(buildColabRow({id:uid()}));
+  applyContinuoUI();
 };
 
 function openProjetoModal(eid){
@@ -1053,6 +1225,7 @@ function openProjetoModal(eid){
   document.getElementById("pr-continuo").value=p?.continuo||"nao";
   document.getElementById("pr-inicio").value=p?.inicio||today();
   document.getElementById("pr-prazo").value=p?.prazo||"";
+  document.getElementById("pr-diavenc").value=p?.diaVenc||"";
   document.getElementById("pr-pagtype").value=p?.pagtype||"integral";
   document.getElementById("pr-nparcelas-block").style.display=p?.pagtype==="parcelado"?"":"none";
   document.getElementById("pr-nparcelas").value=p?.nparcelas||3;
@@ -1064,6 +1237,7 @@ function openProjetoModal(eid){
   // Colabs
   const colList=document.getElementById("pr-colabs-list");colList.innerHTML="";
   (p?.colabs||[]).forEach(c=>colList.appendChild(buildColabRow(c)));
+  applyContinuoUI();
   openM("modal-projeto");
 }
 document.getElementById("btn-new-projeto").onclick=()=>openProjetoModal(null);
@@ -1079,12 +1253,17 @@ document.getElementById("mpr-save").onclick=async()=>{
     continuo:document.getElementById("pr-continuo").value,
     inicio:document.getElementById("pr-inicio").value,
     prazo:document.getElementById("pr-prazo").value,
+    diaVenc:parseInt(document.getElementById("pr-diavenc").value)||null,
     pagtype:document.getElementById("pr-pagtype").value,
     nparcelas:parseInt(document.getElementById("pr-nparcelas").value)||3,
     pagdatas,colabs,
+    recMigrado:true,
     status:document.getElementById("pr-status").value,
     obs:document.getElementById("pr-obs").value,
   };
+  if(data.continuo==="sim"&&!data.inicio){alert("Projeto recorrente precisa de uma data de início. É ela que define o primeiro mês.");return;}
+  const antigo=ST.editProjetoId?DB.projetos.find(x=>x.id===ST.editProjetoId):null;
+  if(antigo)data.recMigrado=!!antigo.recMigrado;
   if(ST.editProjetoId){const i=DB.projetos.findIndex(x=>x.id===ST.editProjetoId);if(i>=0)DB.projetos[i]=data;}
   else DB.projetos.push(data);
   closeM("modal-projeto");await saveDB();
@@ -1213,6 +1392,148 @@ function renderProjetoPagtoModal(pid){
   });
 }
 ["mpp-close","mpp-cancel"].forEach(id=>document.getElementById(id).onclick=()=>closeM("modal-pagto-proj"));
+
+// ── PAGAMENTOS MENSAIS (PROJETO RECORRENTE) ────────────────
+function openProjMesModal(pid,ms){
+  const p=DB.projetos.find(x=>x.id===pid);if(!p)return;
+  const comps=projCompetencias(p);
+  if(!comps.length){alert("Preencha a data de início do projeto para gerar os meses.");return;}
+  let sel=ms&&comps.indexOf(ms)>=0?ms:(comps.indexOf(curMS())>=0?curMS():comps[comps.length-1]);
+  const abertos=projMesesEmAberto(p);
+  if(!ms&&abertos.length&&abertos.indexOf(sel)<0)sel=abertos[0];
+  ST.pmesPid=pid;ST.pmesMS=sel;
+  document.getElementById("mpm-title").textContent="Pagamentos mensais — "+p.cliente+" ("+p.tipo+")";
+  renderProjMesModal();
+  openM("modal-proj-mes");
+}
+function renderProjMesModal(){
+  const p=DB.projetos.find(x=>x.id===ST.pmesPid);if(!p)return;
+  const comps=projCompetencias(p);
+  const ms=ST.pmesMS;
+  // Abas de competência
+  const tabs=document.getElementById("mpm-tabs");tabs.innerHTML="";
+  comps.slice().reverse().forEach(c=>{
+    const st=projMesStatus(p,c);
+    const colabFalta=(p.colabs||[]).some(x=>projMesColabPago(p,x,c)<projMesColabValor(p,x,c));
+    const dot=st==="pago"&&!colabFalta?"🟢":st==="vencido"?"🔴":st==="parcial"?"🔵":"🟡";
+    const b=el("button","mtab"+(c===ms?" active":""),dot+" "+msLabel(c));
+    b.onclick=()=>{ST.pmesMS=c;renderProjMesModal();};
+    tabs.appendChild(b);
+  });
+
+  const prev=projMesValor(p,ms),rec=projMesRecebido(p,ms),falta=prev-rec;
+  const pct=prev>0?Math.min(100,Math.round(rec/prev*100)):0;
+  const col=rec>=prev&&prev>0?"#3b6d11":rec>0?"#185fa5":"#854f0b";
+  const body=document.getElementById("mpm-body");body.innerHTML="";
+
+  const resumo=el("div");resumo.style.cssText="background:#f5f5f0;border-radius:8px;padding:.875rem;margin-bottom:1rem;font-size:13px";
+  resumo.innerHTML=`<div style="display:flex;justify-content:space-between;margin-bottom:.5rem"><span><b>Competência ${msLabelFull(ms)}</b></span><span style="color:${col};font-weight:700">${pct}% recebido</span></div>
+  <div style="background:#e5e5e0;border-radius:99px;height:8px;overflow:hidden;margin-bottom:.5rem"><div style="height:100%;width:${pct}%;background:${col};border-radius:99px"></div></div>
+  <div style="display:flex;justify-content:space-between;font-size:12px"><span>Previsto: ${fmtR(prev)}</span><span style="color:#3b6d11">✓ Recebido: ${fmtR(rec)}</span><span style="color:${falta>0?"#a32d2d":"#3b6d11"}">Falta: ${fmtR(Math.max(0,falta))}</span></div>`;
+  body.appendChild(resumo);
+
+  // ENTRADA DO CLIENTE
+  const h1=el("div","","📥 Entrada do cliente");h1.style.cssText="font-weight:700;font-size:13px;margin:.5rem 0;color:#3b6d11";body.appendChild(h1);
+  const r=getPM(p.id,ms);
+  const ents=r?(r.entradas||[]):[];
+  if(!ents.length){const e=el("div","","Nenhuma entrada registrada neste mês");e.style.cssText="color:#bbb;font-size:13px;text-align:center;padding:.75rem";body.appendChild(e);}
+  ents.forEach((e,i)=>{
+    const row=el("div","pagto-block");row.style.cssText="display:flex;align-items:center;gap:8px;justify-content:space-between;background:#eaf3de";
+    const info=el("div");info.innerHTML=`<div style="font-weight:600">${fmtR(e.valor)}</div><div style="font-size:11px;color:#666">${fmtFull(e.data)}${e.obs?" — "+e.obs:""}</div>`;
+    const rm=btnDel(async()=>{
+      const rr=ensurePM(p.id,ms);rr.entradas.splice(i,1);limpaPM(p.id,ms);
+      await saveDB();renderProjMesModal();renderProjetos();renderPainel();renderFin();
+    });
+    row.appendChild(info);row.appendChild(rm);body.appendChild(row);
+  });
+  const addEnt=el("div");addEnt.style.cssText="background:#eaf3de;border-radius:8px;padding:.75rem;margin-bottom:1rem;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end";
+  const evF=el("div","field");evF.style.cssText="flex:1;min-width:110px";evF.innerHTML='<label>Valor recebido</label>';
+  const evI=el("input");evI.type="number";evI.step="0.01";evI.placeholder=String(Math.max(0,falta)||prev);evF.appendChild(evI);
+  const edF=el("div","field");edF.style.cssText="flex:1;min-width:130px";edF.innerHTML='<label>Data</label>';
+  const edI=el("input");edI.type="date";edI.value=today();edF.appendChild(edI);
+  const eoF=el("div","field");eoF.style.cssText="flex:1;min-width:110px";eoF.innerHTML='<label>Obs</label>';
+  const eoI=el("input");eoI.type="text";eoI.placeholder="PIX, boleto...";eoF.appendChild(eoI);
+  const eb=el("button","btn btn-primary btn-sm","+ Lançar entrada");
+  eb.onclick=async()=>{
+    const v=parseFloat(evI.value)||Math.max(0,falta);
+    if(!v||v<=0){alert("Informe o valor recebido");return;}
+    const rr=ensurePM(p.id,ms);rr.entradas.push({valor:v,data:edI.value||today(),obs:eoI.value||""});
+    await saveDB();renderProjMesModal();renderProjetos();renderPainel();renderFin();
+  };
+  const ebFull=el("button","btn btn-sm","✓ Recebi tudo");
+  ebFull.onclick=async()=>{
+    if(falta<=0){alert("Este mês já está quitado.");return;}
+    const rr=ensurePM(p.id,ms);rr.entradas.push({valor:falta,data:today(),obs:""});
+    await saveDB();renderProjMesModal();renderProjetos();renderPainel();renderFin();
+  };
+  addEnt.appendChild(evF);addEnt.appendChild(edF);addEnt.appendChild(eoF);addEnt.appendChild(eb);addEnt.appendChild(ebFull);
+  body.appendChild(addEnt);
+
+  // SAÍDAS PARA COLABORADORES
+  (p.colabs||[]).forEach(c=>{
+    const cPrev=projMesColabValor(p,c,ms),cPago=projMesColabPago(p,c,ms),cFalta=cPrev-cPago;
+    const h2=el("div","",`📤 Pagar ${c.nome} (${c.funcao||"Colaborador"}) — ${fmtR(cPago)} de ${fmtR(cPrev)}`);
+    h2.style.cssText="font-weight:700;font-size:13px;margin:.875rem 0 .5rem;color:#a32d2d";body.appendChild(h2);
+    const cc=r&&r.colabs?r.colabs[c.id]:null;
+    const pgs=cc?(cc.pagtos||[]):[];
+    if(!pgs.length){const e=el("div","","Nada pago neste mês");e.style.cssText="color:#bbb;font-size:12px;padding:.4rem 0";body.appendChild(e);}
+    pgs.forEach((pg,i)=>{
+      const row=el("div","pagto-block");row.style.cssText="display:flex;align-items:center;gap:8px;justify-content:space-between;background:#fff0f0";
+      const info=el("div");info.innerHTML=`<div style="font-weight:600">${fmtR(pg.valor)}</div><div style="font-size:11px;color:#666">${fmtFull(pg.data)}${pg.obs?" — "+pg.obs:""}</div>`;
+      const rm=btnDel(async()=>{
+        const rr=ensurePM(p.id,ms);
+        if(rr.colabs[c.id]&&rr.colabs[c.id].pagtos)rr.colabs[c.id].pagtos.splice(i,1);
+        limpaPM(p.id,ms);
+        await saveDB();renderProjMesModal();renderProjetos();renderPainel();renderFin();
+      });
+      row.appendChild(info);row.appendChild(rm);body.appendChild(row);
+    });
+    const addC=el("div");addC.style.cssText="background:#fff0f0;border-radius:8px;padding:.75rem;margin-bottom:.5rem;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end";
+    const cvF=el("div","field");cvF.style.cssText="flex:1;min-width:110px";cvF.innerHTML='<label>Valor pago</label>';
+    const cvI=el("input");cvI.type="number";cvI.step="0.01";cvI.placeholder=String(Math.max(0,cFalta)||cPrev);cvF.appendChild(cvI);
+    const cdF=el("div","field");cdF.style.cssText="flex:1;min-width:130px";cdF.innerHTML='<label>Data</label>';
+    const cdI=el("input");cdI.type="date";cdI.value=today();cdF.appendChild(cdI);
+    const cb=el("button","btn btn-sm btn-del","+ Lançar saída");
+    cb.onclick=async()=>{
+      const v=parseFloat(cvI.value)||Math.max(0,cFalta);
+      if(!v||v<=0){alert("Informe o valor pago");return;}
+      const rr=ensurePM(p.id,ms);
+      if(!rr.colabs[c.id])rr.colabs[c.id]={pagtos:[]};
+      if(!rr.colabs[c.id].pagtos)rr.colabs[c.id].pagtos=[];
+      rr.colabs[c.id].pagtos.push({valor:v,data:cdI.value||today(),obs:""});
+      await saveDB();renderProjMesModal();renderProjetos();renderPainel();renderFin();
+    };
+    const cbFull=el("button","btn btn-sm","✓ Paguei tudo");
+    cbFull.onclick=async()=>{
+      if(cFalta<=0){alert("Este colaborador já está quitado no mês.");return;}
+      const rr=ensurePM(p.id,ms);
+      if(!rr.colabs[c.id])rr.colabs[c.id]={pagtos:[]};
+      if(!rr.colabs[c.id].pagtos)rr.colabs[c.id].pagtos=[];
+      rr.colabs[c.id].pagtos.push({valor:cFalta,data:today(),obs:""});
+      await saveDB();renderProjMesModal();renderProjetos();renderPainel();renderFin();
+    };
+    addC.appendChild(cvF);addC.appendChild(cdF);addC.appendChild(cb);addC.appendChild(cbFull);
+    body.appendChild(addC);
+  });
+
+  // Ajuste do valor do mês
+  const adj=el("div");adj.style.cssText="border-top:1px solid #f0f0eb;margin-top:1rem;padding-top:.75rem;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end";
+  const avF=el("div","field");avF.style.cssText="flex:1;min-width:140px";avF.innerHTML='<label>Valor do cliente só neste mês (R$)</label>';
+  const avI=el("input");avI.type="number";avI.step="0.01";avI.placeholder=String(Number(p.valor||0));avI.value=(r&&r.valorCliente!==undefined&&r.valorCliente!==null)?r.valorCliente:"";avF.appendChild(avI);
+  const ab=el("button","btn btn-sm","Aplicar");
+  ab.onclick=async()=>{
+    const rr=ensurePM(p.id,ms);
+    if(avI.value===""){delete rr.valorCliente;}else{rr.valorCliente=parseFloat(avI.value)||0;}
+    limpaPM(p.id,ms);
+    await saveDB();renderProjMesModal();renderProjetos();renderPainel();renderFin();
+  };
+  adj.appendChild(avF);adj.appendChild(ab);
+  const adjNote=el("div","","Deixe vazio para usar o valor padrão do projeto.");adjNote.style.cssText="font-size:11px;color:#999;width:100%;margin-top:4px";
+  adj.appendChild(adjNote);
+  body.appendChild(adj);
+}
+["mpm-close","mpm-cancel"].forEach(id=>document.getElementById(id).onclick=()=>closeM("modal-proj-mes"));
+window.openProjMesModal=openProjMesModal;
 
 // ── ACESSOS MODAL ─────────────────────────────────────────
 function buildAcessoPlat(plat){
@@ -1350,14 +1671,27 @@ function renderPainel(){
     const falta=valorEf-pago;
     if(st==="vencido")payAl+=`<div class="al al-danger">⚠ <b>${c.nome}</b> — ${MESES[m]}: não pagou (${fmtR(valorEf)})</div>`;
     else if(st==="parcial")payAl+=`<div class="al al-warning">💰 <b>${c.nome}</b> — pagou ${fmtR(pago)}, falta ${fmtR(falta)}</div>`;
+    else if(st==="pendente")payAl+=`<div class="al al-info">📅 <b>${c.nome}</b> — vence dia ${c.dia}/${m+1} (${fmtR(valorEf)})</div>`;
   });
   // Projeto alerts
   DB.projetos.forEach(p=>{
-    if(p.status==="concluido")return;
+    if(p.status==="concluido"&&!isRec(p))return;
     const hoje2=hoje;
+    if(isRec(p)){
+      if(!projTemCompetencia(p,ms))return;
+      const st=projMesStatus(p,ms),prev=projMesValor(p,ms),recM=projMesRecebido(p,ms);
+      if(st==="vencido")payAl+=`<div class="al al-danger">🔁 <b>${p.cliente}</b> — ${MESES[m]}: não pagou (${fmtR(prev)})</div>`;
+      else if(st==="parcial")payAl+=`<div class="al al-warning">🔁 <b>${p.cliente}</b> — ${MESES[m]}: recebeu ${fmtR(recM)}, falta ${fmtR(prev-recM)}</div>`;
+      else if(st==="pendente")payAl+=`<div class="al al-info">🔁 <b>${p.cliente}</b> — vence dia ${projDiaVenc(p)}/${m+1} (${fmtR(prev)})</div>`;
+      (p.colabs||[]).forEach(c=>{
+        const cf=projMesColabValor(p,c,ms)-projMesColabPago(p,c,ms);
+        if(cf>0)payAl+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${MESES[m]}: ${fmtR(cf)}</div>`;
+      });
+      return;
+    }
     (p.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje2)payAl+=`<div class="al al-warning">💼 <b>${p.cliente}</b> — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});
-    (p.colabs||[]).forEach(c=>{(c.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<hoje2)payAl+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});});
-    if(p.prazo&&p.prazo<hoje2&&p.status!=="concluido")payAl+=`<div class="al al-warning">⏰ Projeto <b>${p.cliente}</b> (${p.tipo}) passou do prazo: ${fmt(p.prazo)}</div>`;
+    (p.colabs||[]).forEach(c=>{(c.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje2)payAl+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});});
+    if(p.prazo&&p.prazo<hoje2)payAl+=`<div class="al al-warning">⏰ Projeto <b>${p.cliente}</b> (${p.tipo}) passou do prazo: ${fmt(p.prazo)}</div>`;
   });
 
   if(!al&&!payAl)al='<div class="al al-success">✓ Tudo em dia!</div>';
@@ -1368,19 +1702,21 @@ function renderPainel(){
   document.getElementById("painel-mes-label").textContent=MESES[m]+" "+y;
   const cliAtivos=totClientesAtivos(y,m);
   const projRec=totProjRec(y,m);
+  const projPrev=totProjPrevisto(y,m);
   const bruto=cliAtivos+projRec;
   const colabs=totColabsMes(y,m);
+  const colabsPrev=totColabsPrevistoMes(y,m);
   document.getElementById("ps-clientes").textContent=fmtR(cliAtivos);
-  document.getElementById("ps-projetos").textContent=fmtR(projRec);
+  document.getElementById("ps-projetos").innerHTML=fmtR(projRec)+(projPrev>projRec?`<div style="font-size:10px;opacity:.75;font-weight:400">de ${fmtR(projPrev)} previstos</div>`:"");
   document.getElementById("ps-bruto").textContent=fmtR(bruto);
   document.getElementById("ps-gastos").textContent=fmtR(totGastos());
-  document.getElementById("ps-colabs").textContent=fmtR(colabs);
+  document.getElementById("ps-colabs").innerHTML=fmtR(colabs)+(colabsPrev>colabs?`<div style="font-size:10px;opacity:.75;font-weight:400">de ${fmtR(colabsPrev)} previstos</div>`:"");
   document.getElementById("ps-liquido").textContent=fmtR(bruto-totGastos()-colabs);
   document.getElementById("painel-week-label").textContent=fmt(wd[0])+" – "+fmt(wd[6]);
 
   document.getElementById("painel-metrics").innerHTML=
     `<div class="metric"><div class="ml">Posts semana</div><div class="mv">${wP.length}</div></div>`+
-    `<div class="metric"><div class="ml">Clientes ativos</div><div class="mv">${DB.clientes.filter(c=>!c.status||c.status==="ativo").length}</div></div>`+
+    `<div class="metric"><div class="ml">Clientes ativos</div><div class="mv">${DB.clientes.filter(c=>c.status==="ativo").length}</div></div>`+
     `<div class="metric"><div class="ml">Projetos ativos</div><div class="mv">${DB.projetos.filter(p=>p.status==="andamento").length}</div></div>`+
     `<div class="metric"><div class="ml">No Instagram</div><div class="mv">${DB.posts.filter(p=>p.etapa===4&&p.data>=wd[0]&&p.data<=wd[6]).length}</div></div>`;
 
@@ -1389,7 +1725,7 @@ function renderPainel(){
   ).join("");
 
   const pcc=document.getElementById("painel-post-counter");pcc.innerHTML="";
-  DB.clientes.filter(c=>!c.status||c.status==="ativo").forEach(c=>{
+  DB.clientes.filter(c=>c.status==="ativo").forEach(c=>{
     const cp=wP.filter(p=>p.cliente===c.nome);
     const tot=cp.length,r=cp.filter(p=>p.tipo==="Reels").length,u=cp.filter(p=>p.tipo==="Post único").length,ca=cp.filter(p=>p.tipo==="Carrossel").length,ig=cp.filter(p=>p.etapa===4).length;
     const card=el("div","pcc");
@@ -1593,13 +1929,16 @@ function renderBalanco(m,y){
 
   // Projetos — separar recorrentes de avulsos
   let projRecorrentesVal=0,projAvulsosRecebidoMes=0,projAvulsosPendente=0;
+  let projRecPrevisto=0,projRecFalta=0;
   const projDetalhe=[];
   DB.projetos.forEach(p=>{
-    if(p.status==="concluido")return;
-    if(p.continuo==="sim"){
-      projRecorrentesVal+=Number(p.valor);
-      const colabsMes=(p.colabs||[]).reduce((a,c)=>a+Number(c.valor||0),0);
-      projDetalhe.push({nome:p.cliente,tipo:p.tipo,rec:Number(p.valor),colabs:colabsMes,continuo:true});
+    if(p.status==="concluido"&&!isRec(p))return;
+    if(isRec(p)){
+      if(!projTemCompetencia(p,ms))return;
+      const prev=projMesValor(p,ms),rec=projMesRecebido(p,ms);
+      projRecorrentesVal+=rec;projRecPrevisto+=prev;projRecFalta+=Math.max(0,prev-rec);
+      const colabsMes=projMesColabsPago(p,ms);
+      projDetalhe.push({nome:p.cliente,tipo:p.tipo,rec,colabs:colabsMes,continuo:true,falta:Math.max(0,prev-rec)});
     } else {
       const recMes=getProjRecebidoMes(p,ms);
       projAvulsosRecebidoMes+=recMes;
@@ -1615,18 +1954,11 @@ function renderBalanco(m,y){
   const equipeTotal=totEquipe();
   const iaTotal=totIA();
 
-  // Colabs recorrentes (mensais)
-  // Colabs recorrentes mensais: auto-sum every month (recorrente project + mensal pagtype)
-  const colabsRec=DB.projetos.filter(p=>p.continuo==="sim"&&p.status!=="concluido").reduce((a,p)=>{
-    return a+(p.colabs||[]).filter(c=>c.pagtype==="mensal").reduce((s,c)=>s+Number(c.valor||0),0);
-  },0);
-  // All other colab payments: sum pagdatas where pago=true AND dataPago in this month
-  // This covers: avulso project colabs + recorrente project colabs with integral/metade pagtype
-  const colabsAvulsosMes=DB.projetos.filter(p=>p.status!=="concluido").reduce((a,p)=>{
-    return a+(p.colabs||[]).filter(c=>c.pagtype!=="mensal").reduce((s,c)=>{
-      return s+(c.pagdatas||[]).filter(pd=>pd.pago&&pd.dataPago&&pd.dataPago.startsWith(ms)).reduce((t,pd)=>t+Number(pd.valor),0);
-    },0);
-  },0);
+  // Colabs recorrentes (mensais) — só o que saiu de verdade no mês
+  const recAtivos=DB.projetos.filter(p=>isRec(p)&&projTemCompetencia(p,ms));
+  const colabsRec=recAtivos.reduce((a,p)=>a+projMesColabsPago(p,ms),0);
+  const colabsRecFalta=recAtivos.reduce((a,p)=>a+Math.max(0,projMesColabsValor(p,ms)-projMesColabsPago(p,ms)),0);
+  const colabsAvulsosMes=DB.projetos.filter(p=>!isRec(p)&&p.status!=="concluido").reduce((a,p)=>a+getProjColabPagoMes(p,ms),0);
 
   const totalEntrou=cliRecebido+projRecorrentesVal+projAvulsosRecebidoMes;
   const totalSaiu=equipePago+colabsRec+colabsAvulsosMes+iaTotal;
@@ -1638,24 +1970,27 @@ function renderBalanco(m,y){
       <div style="font-size:12px;font-weight:700;color:#3b6d11;margin-bottom:.5rem">📥 ENTRADAS</div>
       <div class="balanco-row"><span>Clientes mensais</span><span style="color:#3b6d11;font-weight:600">${fmtR(cliRecebido)}</span></div>
       <div class="balanco-row" style="font-size:11px;color:#999"><span>Total a cobrar</span><span>${fmtR(cliTotal)}</span></div>
-      <div class="balanco-row"><span>Projetos recorrentes</span><span style="color:#3b6d11;font-weight:600">${fmtR(projRecorrentesVal)}</span></div>
+      <div class="balanco-row"><span>Projetos recorrentes (recebido)</span><span style="color:#3b6d11;font-weight:600">${fmtR(projRecorrentesVal)}</span></div>
+      <div class="balanco-row" style="font-size:11px;color:#999"><span>Total recorrente do mês</span><span>${fmtR(projRecPrevisto)}</span></div>
+      ${projRecFalta>0?`<div class="balanco-row" style="font-size:11px;color:#a32d2d"><span>↳ falta receber</span><span>${fmtR(projRecFalta)}</span></div>`:""}
       <div class="balanco-row"><span>Projetos avulsos (recebido)</span><span style="color:#3b6d11;font-weight:600">${fmtR(projAvulsosRecebidoMes)}</span></div>
       ${projAvulsosPendente>0?`<div class="balanco-row" style="font-size:11px;color:#999"><span>↳ futuras (no prazo)</span><span>${fmtR(projAvulsosPendente)}</span></div>`:""}
       <div class="balanco-total" style="background:#eaf3de;margin-top:.5rem"><span>Total entrou</span><span style="color:#3b6d11;font-size:16px">${fmtR(totalEntrou)}</span></div>
     </div>
     <div>
       <div style="font-size:12px;font-weight:700;color:#a32d2d;margin-bottom:.5rem">📤 SAÍDAS</div>
-      <div class="balanco-row"><span>Equipe fixa (marcada como paga)</span><span style="color:#a32d2d;font-weight:600">${fmtR(equipePago)}</span></div>
-      <div class="balanco-row" style="font-size:11px;color:#999"><span>↳ Total equipe fixa/mês (referência)</span><span>${fmtR(equipeTotal)}</span></div>
-      <div class="balanco-row"><span>Colaboradores proj. recorrentes</span><span style="color:#a32d2d;font-weight:600">${fmtR(colabsRec)}</span></div>
-      <div class="balanco-row"><span>Colaboradores proj. avulsos (pago)</span><span style="color:#a32d2d;font-weight:600">${fmtR(colabsAvulsosMes)}</span></div>
+      <div class="balanco-row"><span>Equipe fixa (paga)</span><span style="color:#a32d2d;font-weight:600">${fmtR(equipePago)}</span></div>
+      <div class="balanco-row" style="font-size:11px;color:#999"><span>Total equipe/mês</span><span>${fmtR(equipeTotal)}</span></div>
+      <div class="balanco-row"><span>Colaboradores recorrentes (pago)</span><span style="color:#a32d2d;font-weight:600">${fmtR(colabsRec)}</span></div>
+      ${colabsRecFalta>0?`<div class="balanco-row" style="font-size:11px;color:#a32d2d"><span>↳ falta pagar</span><span>${fmtR(colabsRecFalta)}</span></div>`:""}
+      <div class="balanco-row"><span>Colaboradores avulsos (pago)</span><span style="color:#a32d2d;font-weight:600">${fmtR(colabsAvulsosMes)}</span></div>
       <div class="balanco-row"><span>Ferramentas de IA</span><span style="color:#a32d2d;font-weight:600">${fmtR(iaTotal)}</span></div>
       <div class="balanco-total" style="background:#fff0f0;margin-top:.5rem"><span>Total saiu</span><span style="color:#a32d2d;font-size:16px">${fmtR(totalSaiu)}</span></div>
     </div>
   </div>
   ${projDetalhe.length?`
   <div style="font-size:12px;font-weight:700;color:#666;margin-bottom:.5rem">Projetos no mês:</div>
-  ${projDetalhe.map(p=>`<div class="balanco-row"><span>📁 ${p.nome} — ${p.tipo}${p.continuo?" (recorrente)":""}</span><div style="text-align:right"><div style="color:#3b6d11;font-weight:600">${fmtR(p.rec)}</div>${p.colabs>0?`<div style="font-size:11px;color:#a32d2d">colabs: -${fmtR(p.colabs)}</div>`:""}${!p.continuo&&p.pendentes>0?`<div style="font-size:11px;color:#999">futuras: ${fmtR(p.pendentes)}</div>`:""}</div></div>`).join("")}
+  ${projDetalhe.map(p=>`<div class="balanco-row"><span>📁 ${p.nome} — ${p.tipo}${p.continuo?" (recorrente)":""}</span><div style="text-align:right"><div style="color:#3b6d11;font-weight:600">${fmtR(p.rec)}</div>${p.colabs>0?`<div style="font-size:11px;color:#a32d2d">colabs: -${fmtR(p.colabs)}</div>`:""}${p.continuo&&p.falta>0?`<div style="font-size:11px;color:#a32d2d">falta receber: ${fmtR(p.falta)}</div>`:""}${!p.continuo&&p.pendentes>0?`<div style="font-size:11px;color:#999">futuras: ${fmtR(p.pendentes)}</div>`:""}</div></div>`).join("")}
   `:""}
   <div class="balanco-total" style="background:${saldo>=0?"#e1f5ee":"#fff0f0"};font-size:16px">
     <span>Saldo real ${MESES[m]} ${y}${isCurrent?" (até agora)":""}</span>
@@ -1669,101 +2004,57 @@ function renderFinE(){
   const m=ST.feqM,y=ST.feqY;
   const tb=document.getElementById("fin-et");tb.innerHTML="";
   const equipe=DB.equipe||[];
-
-  // Equipe fixa
-  if(!equipe.length){
-    const tr=document.createElement("tr");
-    const td=document.createElement("td");td.colSpan=6;td.className="empty";td.textContent="Nenhum membro";
-    tr.appendChild(td);tb.appendChild(tr);
-  }
-  equipe.forEach(f=>{
+  if(!equipe.length){tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum membro</td></tr>';}
+  else equipe.forEach(f=>{
     const paid=!!(DB.payments["f_"+f.id+"_"+y+"_"+m]);
-    const now=new Date();
-    const isPastMonth=(y<now.getFullYear())||(y===now.getFullYear()&&m<now.getMonth());
-    const st=paid?"pago":(isPastMonth||now.getDate()>f.dia)?"vencido":"pendente";
+    const st=paid?"pago":new Date().getDate()>f.dia?"vencido":"pendente";
     const tr=document.createElement("tr");tr.className="row-"+st;
+    // Find projetos this member collaborates on
     const projVinc=DB.projetos.filter(p=>p.status!=="concluido"&&(p.colabs||[]).some(c=>c.nome===f.nome));
-    // Build nome cell
-    const tdNome=document.createElement("td");tdNome.style.fontWeight="700";
-    tdNome.textContent=f.nome;
-    projVinc.forEach(p=>{const d=el("div");d.style.cssText="font-size:10px;color:#534ab7";d.textContent="🔗 "+p.cliente+" — "+p.tipo;tdNome.appendChild(d);});
-    const tdFuncao=document.createElement("td");tdFuncao.textContent=f.funcao||"";
-    const tdValor=document.createElement("td");tdValor.textContent=fmtR(f.valor);
-    const tdDia=document.createElement("td");tdDia.textContent="Dia "+f.dia;
-    const tdSt=document.createElement("td");
-    const stBadge=el("span","badge b"+st.slice(0,2),{pago:"Pago",pendente:"Pendente",vencido:"Vencido"}[st]);
-    tdSt.appendChild(stBadge);
-    const tdActs=document.createElement("td");
+    const projStr=projVinc.length?projVinc.map(p=>`<div style="font-size:10px;color:#534ab7">🔗 ${p.cliente} — ${p.tipo}</div>`).join(""):"";
+    tr.innerHTML=`<td style="font-weight:700">${f.nome}${projStr}</td><td>${f.funcao||""}</td><td>${fmtR(f.valor)}</td><td>Dia ${f.dia}</td><td><span class="badge b${st.slice(0,2)}">${{pago:"Pago",pendente:"Pendente",vencido:"Vencido"}[st]}</span></td>`;
+    const tdA=document.createElement("td");
     const acts=el("div");acts.style.cssText="display:flex;gap:6px;align-items:center;flex-wrap:wrap";
-    const payBtn=el("button","btn btn-sm",paid?"Desmarcar":"✓ Marcar pago");
-    const fid=f.id;
-    payBtn.onclick=async()=>{DB.payments["f_"+fid+"_"+y+"_"+m]=!DB.payments["f_"+fid+"_"+y+"_"+m];await saveDB();renderFinE();};
-    acts.appendChild(payBtn);
-    const editBtn=btnEdit(()=>openEquipeMemberModal(fid));
-    const delBtn=btnDel(async()=>{if(!confirm("Remover?"))return;DB.equipe=DB.equipe.filter(x=>x.id!==fid);await saveDB();});
-    acts.appendChild(editBtn);acts.appendChild(delBtn);
-    tdActs.appendChild(acts);
-    tr.appendChild(tdNome);tr.appendChild(tdFuncao);tr.appendChild(tdValor);tr.appendChild(tdDia);tr.appendChild(tdSt);tr.appendChild(tdActs);
-    tb.appendChild(tr);
+    const payBtn=el("button","btn btn-sm",paid?"✓ Desmarcar":"✓ Marcar pago");
+    payBtn.onclick=async()=>{DB.payments["f_"+f.id+"_"+y+"_"+m]=!DB.payments["f_"+f.id+"_"+y+"_"+m];await saveDB();};
+    acts.appendChild(payBtn);acts.appendChild(btnEdit(()=>openEquipeMemberModal(f.id)));
+    acts.appendChild(btnDel(async()=>{if(!confirm("Remover?"))return;DB.equipe=DB.equipe.filter(x=>x.id!==f.id);await saveDB();}));
+    tdA.appendChild(acts);tr.appendChild(tdA);tb.appendChild(tr);
   });
-
-  // Separator + colabs from projects
+  // Also show colabs from projects this month
   const ms=monthStr(y,m);
-  const colabsToShow=[];
+  let colabRows="";
   DB.projetos.forEach(p=>{
-    if(p.status==="concluido")return;
+    if(p.status==="concluido"&&!isRec(p))return;
     (p.colabs||[]).forEach(c=>{
       if(!c.nome)return;
-      if(c.pagtype==="mensal"){
-        // Mensal: show every month automatically
-        colabsToShow.push({colab:c,proj:p,valor:Number(c.valor||0),isRec:true});
-      } else {
-        // Non-mensal: show if has any pagdatas (to allow marking payment)
-        if(!(c.pagdatas||[]).length)return;
-        const valor=Number(c.valor||0);
-        colabsToShow.push({colab:c,proj:p,valor,isRec:false});
+      if(isRec(p)){
+        if(!projTemCompetencia(p,ms))return;
+        const valor=projMesColabValor(p,c,ms);
+        const pago=projMesColabPago(p,c,ms);
+        const st=pago>=valor&&valor>0?"bpago":pago>0?"bparcial":"bpendente";
+        const lbl=pago>=valor&&valor>0?"Pago":pago>0?"Parcial":"Pendente";
+        colabRows+=`<tr><td style="font-weight:700">${c.nome}<div style="font-size:10px;color:#534ab7">🔁 ${p.cliente} — ${p.tipo} (${msLabel(ms)})</div></td><td>${c.funcao||"Colaborador"}</td><td>${fmtR(valor)}${pago>0&&pago<valor?`<div style="font-size:10px;color:#185fa5">pago: ${fmtR(pago)}</div>`:""}</td><td>Dia ${projDiaVenc(p)}</td><td><span class="badge ${st}">${lbl}</span></td><td><button class="btn btn-sm" onclick="openProjMesModal('${p.id}','${ms}')">$ Pagtos</button></td></tr>`;
+        return;
       }
+      const pagMes=c.pagtype==="mensal";
+      const valor=pagMes?Number(c.valor||0):(c.pagdatas||[]).filter(pd=>pd.date&&pd.date.startsWith(ms)).reduce((a,pd)=>a+Number(pd.valor),0);
+      if(!pagMes&&!(c.pagdatas||[]).some(pd=>pd.date&&pd.date.startsWith(ms)))return;
+      const pago=(c.pagdatas||[]).filter(pd=>pd.pago&&pd.dataPago&&pd.dataPago.startsWith(ms)).reduce((a,pd)=>a+Number(pd.valor),0);
+      colabRows+=`<tr><td style="font-weight:700">${c.nome}<div style="font-size:10px;color:#534ab7">Projeto: ${p.cliente} — ${p.tipo}</div></td><td>${c.funcao||"Colaborador"}</td><td>${fmtR(valor)}</td><td>Conforme projeto</td><td><span class="badge ${pago>=valor&&valor>0?"bpago":"bpendente"}">${pago>=valor&&valor>0?"Pago":"Pendente"}</span></td><td><button class="btn btn-sm" onclick="openProjetoPagtoModal('${p.id}')">$ Pagtos</button></td></tr>`;
     });
   });
-  if(colabsToShow.length){
-    const sepTr=document.createElement("tr");
-    const sepTd=document.createElement("td");sepTd.colSpan=6;
-    sepTd.style.cssText="background:#f5f5f0;font-size:12px;font-weight:700;color:#666;padding:8px 12px";
-    sepTd.textContent="Colaboradores de projetos";
-    sepTr.appendChild(sepTd);tb.appendChild(sepTr);
-
-    colabsToShow.forEach(({colab,proj,valor,isRec})=>{
-      const pagos=(colab.pagdatas||[]).filter(pd=>pd.pago).reduce((a,pd)=>a+Number(pd.valor),0);
-      const isPago=pagos>=valor&&valor>0;
-      const tr=document.createElement("tr");tr.className=isPago?"row-pago":"row-pendente";
-      const tdN=document.createElement("td");tdN.style.fontWeight="700";tdN.textContent=colab.nome;
-      const sub=el("div");sub.style.cssText="font-size:10px;color:#534ab7";sub.textContent="Projeto: "+proj.cliente+" — "+proj.tipo+(isRec?" (mensal)":"");
-      tdN.appendChild(sub);
-      const tdF=document.createElement("td");tdF.textContent=colab.funcao||"Colaborador";
-      const tdV=document.createElement("td");tdV.textContent=fmtR(valor)+(isRec?"/mês":"");
-      const tdD=document.createElement("td");tdD.textContent="Conforme projeto";
-      const tdS=document.createElement("td");
-      tdS.appendChild(el("span","badge "+(isPago?"bpago":"bpendente"),isPago?"Pago":"Pendente"));
-      const tdA=document.createElement("td");
-      const pgBtn=el("button","btn btn-sm","$ Pagtos");
-      const pid=proj.id;
-      pgBtn.onclick=()=>openProjetoPagtoModal(pid);
-      tdA.appendChild(pgBtn);
-      tr.appendChild(tdN);tr.appendChild(tdF);tr.appendChild(tdV);tr.appendChild(tdD);tr.appendChild(tdS);tr.appendChild(tdA);
-      tb.appendChild(tr);
-    });
+  if(colabRows){
+    tb.innerHTML+='<tr><td colspan="6" style="background:#f5f5f0;font-size:12px;font-weight:700;color:#666;padding:8px 12px">Colaboradores de projetos</td></tr>'+colabRows;
   }
-
   const totPago=equipe.reduce((a,f)=>a+(DB.payments["f_"+f.id+"_"+y+"_"+m]?Number(f.valor):0),0);
   document.getElementById("feq-totals").innerHTML=
-    `<div class="metric"><div class="ml">Equipe fixa/mês</div><div class="mv" style="font-size:16px">${fmtR(totEquipe())}</div></div>`+
-    `<div class="metric"><div class="ml">Pago este mês</div><div class="mv" style="font-size:16px;color:#3b6d11">${fmtR(totPago)}</div></div>`+
+    `<div class="metric"><div class="ml">Equipe total/mês</div><div class="mv" style="font-size:16px">${fmtR(totEquipe())}</div></div>`+
+    `<div class="metric"><div class="ml">Pago no mês</div><div class="mv" style="font-size:16px;color:#3b6d11">${fmtR(totPago)}</div></div>`+
     `<div class="metric"><div class="ml">Pendente</div><div class="mv" style="font-size:16px;color:#854f0b">${fmtR(totEquipe()-totPago)}</div></div>`;
 }
 
 window.openProjetoPagtoModal=openProjetoPagtoModal;
-window.openEquipeMemberModal=openEquipeMemberModal;
-window.openClienteModal=openClienteModal;
 
 // ── PROJETOS PAGE ─────────────────────────────────────────
 document.getElementById("proj-tabs").addEventListener("click",e=>{
@@ -1783,12 +2074,27 @@ function renderProjetos(){
     `<div class="metric"><div class="ml">Em andamento</div><div class="mv c-warn">${ativos}</div></div>`+
     `<div class="metric"><div class="ml">Recorrentes/mês</div><div class="mv" style="font-size:16px;color:#1D9E75">${fmtR(recVal)}</div></div>`+
     `<div class="metric"><div class="ml">Concluídos</div><div class="mv c-ok">${concluidos}</div></div>`+
-    `<div class="metric"><div class="ml">Contratado (ativos)</div><div class="mv" style="font-size:15px">${fmtR(totalContratado)}</div></div>`;
+    `<div class="metric"><div class="ml">Contratado (ativos)</div><div class="mv" style="font-size:15px">${fmtR(totalContratado)}</div></div>`+
+    `<div class="metric"><div class="ml">Meses em aberto</div><div class="mv c-bad">${recorrentes.reduce((a,p)=>a+projMesesEmAberto(p).length,0)}</div></div>`;
 
   const hoje=today();
   let palerts="";
   DB.projetos.forEach(p=>{
     if(p.status==="concluido")return;
+    if(isRec(p)){
+      projMesesEmAberto(p).forEach(ms=>{
+        const st=projMesStatus(p,ms);
+        const prev=projMesValor(p,ms),rec=projMesRecebido(p,ms);
+        if(st==="vencido")palerts+=`<div class="al al-danger">🔁 <b>${p.cliente}</b> — ${msLabelFull(ms)}: cliente não pagou ${fmtR(prev)}</div>`;
+        else if(st==="parcial")palerts+=`<div class="al al-warning">🔁 <b>${p.cliente}</b> — ${msLabelFull(ms)}: recebeu ${fmtR(rec)}, falta ${fmtR(prev-rec)}</div>`;
+        else if(st==="pendente")palerts+=`<div class="al al-info">🔁 <b>${p.cliente}</b> — ${msLabelFull(ms)}: vence dia ${projDiaVenc(p)} (${fmtR(prev)})</div>`;
+        (p.colabs||[]).forEach(c=>{
+          const cf=projMesColabValor(p,c,ms)-projMesColabPago(p,c,ms);
+          if(cf>0)palerts+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${msLabelFull(ms)}: ${fmtR(cf)}</div>`;
+        });
+      });
+      return;
+    }
     if(p.prazo&&p.prazo<hoje)palerts+=`<div class="al al-warning">⏰ <b>${p.cliente}</b> (${p.tipo}) — prazo venceu em ${fmt(p.prazo)}</div>`;
     (p.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje)palerts+=`<div class="al al-warning">💼 <b>${p.cliente}</b> — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});
     (p.colabs||[]).forEach(c=>{(c.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje)palerts+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});});
@@ -1831,28 +2137,51 @@ function renderProjetos(){
     // Financial summary
     const finRow=el("div");finRow.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:.875rem;padding:.875rem;background:#f5f5f0;border-radius:8px";
     const mk=(l,v,c)=>{const d=el("div");d.innerHTML=`<div style="font-size:10px;color:#888;margin-bottom:2px">${l}</div><div style="font-size:15px;font-weight:700;color:${c||"#1a1a1a"}">${fmtR(v)}</div>`;return d;};
-    finRow.appendChild(mk("Valor cliente",p.valor,"#1a1a1a"));
-    if(colabTotal>0){finRow.appendChild(mk("Total colaboradores",colabTotal,"#a32d2d"));finRow.appendChild(mk("💰 Sua parte",minhaParte,"#1D9E75"));}
-    if(p.continuo!=="sim"&&p.pagdatas?.length)finRow.appendChild(mk("Recebido",recTotal,recTotal>=Number(p.valor)?"#3b6d11":"#185fa5"));
+    const rec=isRec(p);
+    const msAtual=curMS();
+    const temMesAtual=rec&&projTemCompetencia(p,msAtual);
+    finRow.appendChild(mk(rec?"Valor cliente/mês":"Valor cliente",p.valor,"#1a1a1a"));
+    if(colabTotal>0){finRow.appendChild(mk(rec?"Colaboradores/mês":"Total colaboradores",colabTotal,"#a32d2d"));finRow.appendChild(mk(rec?"💰 Sua parte/mês":"💰 Sua parte",minhaParte,"#1D9E75"));}
+    if(!rec&&p.pagdatas?.length)finRow.appendChild(mk("Recebido",recTotal,recTotal>=Number(p.valor)?"#3b6d11":"#185fa5"));
+    if(temMesAtual)finRow.appendChild(mk("Recebido em "+msLabel(msAtual),projMesRecebido(p,msAtual),projMesRecebido(p,msAtual)>=projMesValor(p,msAtual)?"#3b6d11":"#854f0b"));
     card.appendChild(finRow);
+
+    // Meses em aberto (recorrente)
+    if(rec){
+      const comps=projCompetencias(p);
+      const abertos=projMesesEmAberto(p);
+      const info=el("div");info.style.cssText="font-size:12px;margin-bottom:.75rem;display:flex;gap:6px;flex-wrap:wrap;align-items:center";
+      info.innerHTML=`<span style="color:#666">${comps.length} ${comps.length===1?"mês gerado":"meses gerados"} desde ${fmtFull(p.inicio||"")}</span>`;
+      if(abertos.length)info.innerHTML+=`<span class="badge bvencido">${abertos.length} em aberto: ${abertos.slice(0,4).map(msLabel).join(", ")}${abertos.length>4?"...":""}</span>`;
+      else info.innerHTML+=`<span class="badge bpago">Todos os meses quitados</span>`;
+      card.appendChild(info);
+    }
 
     // Colabs
     if((p.colabs||[]).length){
       const colH=el("div","","Colaboradores:");colH.style.cssText="font-size:12px;font-weight:700;color:#666;margin-bottom:.5rem";card.appendChild(colH);
       p.colabs.forEach(c=>{
-        const colabPago=(c.pagdatas||[]).filter(pd=>pd.pago).reduce((a,pd)=>a+Number(pd.valor),0);
-        const colabPct=Number(c.valor||0)>0?Math.round(colabPago/Number(c.valor)*100):0;
-        const colabDone=colabPago>=Number(c.valor||0)&&Number(c.valor||0)>0;
-        const cRow=el("div");cRow.style.cssText=`display:flex;align-items:center;justify-content:space-between;background:${colabDone?"#eaf3de":"#fff0f0"};border-radius:6px;padding:.5rem .75rem;margin-bottom:.375rem;flex-wrap:wrap;gap:4px`;
-        cRow.innerHTML=`<span><b>${c.nome}</b> <span style="font-size:11px;color:#888">${c.funcao}</span></span><span style="color:${colabDone?"#3b6d11":"#a32d2d"};font-weight:700">${fmtR(c.valor||0)}/proj${c.pagtype==="mensal"?" (mensal)":""}</span>`;
-        if(c.pagdatas?.length){cRow.innerHTML+=`<span style="font-size:11px;color:${colabDone?"#3b6d11":"#888"}">Pago: ${fmtR(colabPago)} (${colabPct}%)</span>`;}
+        const cRow=el("div");cRow.style.cssText="display:flex;align-items:center;justify-content:space-between;background:#fff0f0;border-radius:6px;padding:.5rem .75rem;margin-bottom:.375rem;flex-wrap:wrap;gap:4px";
+        if(rec){
+          const cPrev=temMesAtual?projMesColabValor(p,c,msAtual):Number(c.valor||0);
+          const cPago=temMesAtual?projMesColabPago(p,c,msAtual):0;
+          const pct=cPrev>0?Math.round(cPago/cPrev*100):0;
+          cRow.innerHTML=`<span><b>${c.nome}</b> <span style="font-size:11px;color:#888">${c.funcao}</span></span><span style="color:#a32d2d;font-weight:700">${fmtR(c.valor||0)}/mês</span>`;
+          if(temMesAtual)cRow.innerHTML+=`<span style="font-size:11px;color:${cPago>=cPrev?"#3b6d11":"#a32d2d"}">${msLabel(msAtual)}: ${fmtR(cPago)} (${pct}%)</span>`;
+        } else {
+          const colabPago=(c.pagdatas||[]).filter(pd=>pd.pago).reduce((a,pd)=>a+Number(pd.valor),0);
+          cRow.innerHTML=`<span><b>${c.nome}</b> <span style="font-size:11px;color:#888">${c.funcao}</span></span><span style="color:#a32d2d;font-weight:700">${fmtR(c.valor||0)}/proj</span>`;
+          if(c.pagdatas?.length){const pct=c.valor>0?Math.round(colabPago/c.valor*100):0;cRow.innerHTML+=`<span style="font-size:11px;color:#888">Pago: ${fmtR(colabPago)} (${pct}%)</span>`;}
+        }
         card.appendChild(cRow);
       });
     }
 
     // Actions
     const actRow=el("div");actRow.style.cssText="display:flex;gap:8px;margin-top:.875rem;flex-wrap:wrap";
-    if(p.pagdatas?.length||(p.colabs||[]).some(c=>c.pagdatas?.length)){
+    if(rec){
+      const pgBtn=el("button","btn btn-sm btn-primary","$ Pagamentos mensais");pgBtn.onclick=()=>openProjMesModal(p.id);actRow.appendChild(pgBtn);
+    } else if(p.pagdatas?.length||(p.colabs||[]).some(c=>c.pagdatas?.length)){
       const pgBtn=el("button","btn btn-sm btn-primary","$ Pagamentos");pgBtn.onclick=()=>openProjetoPagtoModal(p.id);actRow.appendChild(pgBtn);
     }
     card.appendChild(actRow);
