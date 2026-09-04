@@ -36,6 +36,7 @@ h3{font-size:15px;font-weight:600;margin-bottom:.75rem}
 .al-purple{background:#eeedfe;color:#534ab7;border:1px solid #c5c1f7}
 .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600}
 .br{background:#e1f5ee;color:#0f6e56}.bu{background:#e6f1fb;color:#185fa5}.bc{background:#faeeda;color:#854f0b}
+.bst{background:#eeedfe;color:#534ab7}
 .bpago{background:#eaf3de;color:#3b6d11}.bpendente{background:#faeeda;color:#854f0b}
 .bvencido{background:#fff0f0;color:#a32d2d}.bparcial{background:#e6f1fb;color:#185fa5}
 .bpausa{background:#f0f0eb;color:#666}.bdesconto{background:#eeedfe;color:#534ab7}
@@ -361,7 +362,7 @@ tr.row-desconto td{background:#f5f0ff}
 <div class="overlay" id="modal-post"><div class="mbox">
   <div class="mhead"><h3 id="mp-title">Novo post</h3><button class="btn btn-icon" id="mp-close">✕</button></div>
   <input type="hidden" id="ep-id">
-  <div class="irow"><div class="field"><label>Cliente</label><select id="p-cliente"></select></div><div class="field"><label>Tipo</label><select id="p-tipo"><option>Reels</option><option>Post único</option><option>Carrossel</option></select></div></div>
+  <div class="irow"><div class="field"><label>Cliente</label><select id="p-cliente"></select></div><div class="field"><label>Tipo</label><select id="p-tipo"><option>Reels</option><option>Post único</option><option>Carrossel</option><option>Story</option></select></div></div>
   <div class="irow"><div class="field"><label>Data</label><input type="date" id="p-data"></div><div class="field"><label>Produtor</label><select id="p-produtor"><option>Editor</option><option>Eu</option></select></div></div>
   <div class="field" style="margin-bottom:1rem"><label>Observação</label><textarea id="p-obs" rows="2"></textarea></div>
   <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="mp-cancel">Cancelar</button><button class="btn btn-primary" id="mp-save">Salvar</button></div>
@@ -671,6 +672,8 @@ function fmtR(v){return "R$ "+Number(v).toLocaleString("pt-BR",{minimumFractionD
 function monthStr(y,m){return String(y)+"-"+String(m+1).padStart(2,"0");}
 function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!==undefined)e.textContent=txt;return e;}
 function badge(cls,txt){return el("span","badge "+cls,txt);}
+const TIPOS_POST=["Reels","Post único","Carrossel","Story"];
+function clsTipo(t){return t==="Reels"?"badge br":t==="Post único"?"badge bu":t==="Story"?"badge bst":"badge bc";}
 
 function btnDel(cb){
   const b=document.createElement("button");b.className="btn btn-icon btn-sm btn-del";b.title="Deletar";b.draggable=false;
@@ -941,10 +944,26 @@ function openM(id){document.getElementById(id).classList.add("open");}
 function closeM(id){document.getElementById(id).classList.remove("open");}
 document.querySelectorAll(".overlay").forEach(o=>o.addEventListener("click",e=>{if(e.target===o)o.classList.remove("open");}));
 
+// Cliente antigo, criado antes de existir o campo "status", vem sem status.
+// Sem status ele NÃO é inativo, é ativo. Só pausa e inativo tiram o cliente da lista.
+function clienteAtivo(c){return !c.status||c.status==="ativo";}
+
 function popSel(selId){
   const s=document.getElementById(selId);if(!s)return;
   const cur=s.value;s.innerHTML='<option value="">Selecione</option>';
-  DB.clientes.filter(c=>c.status==="ativo").forEach(c=>{const o=document.createElement("option");o.value=c.nome;o.textContent=c.nome;s.appendChild(o);});
+  const nomes=new Set();
+  DB.clientes.filter(clienteAtivo).forEach(c=>{
+    nomes.add(c.nome);
+    const o=document.createElement("option");o.value=c.nome;o.textContent=c.nome;s.appendChild(o);
+  });
+  // Projetos de gestão de redes também recebem posts, então entram na lista
+  DB.projetos.filter(p=>p.status!=="concluido"&&/redes|Instagram/i.test(p.tipo||"")).forEach(p=>{
+    if(nomes.has(p.cliente))return;
+    nomes.add(p.cliente);
+    const o=document.createElement("option");o.value=p.cliente;o.textContent=p.cliente+" (projeto)";s.appendChild(o);
+  });
+  // Se o post atual aponta para um cliente que já saiu da lista, mantém a opção
+  if(cur&&!nomes.has(cur)){const o=document.createElement("option");o.value=cur;o.textContent=cur+" (fora da lista)";s.appendChild(o);}
   if(cur)s.value=cur;
 }
 
@@ -1691,7 +1710,7 @@ function renderPainel(){
 
   // Anniversary alerts
   const nowD=new Date();
-  DB.clientes.filter(c=>c.inicio&&c.status==="ativo").forEach(c=>{
+  DB.clientes.filter(c=>c.inicio&&clienteAtivo(c)).forEach(c=>{
     const ini=new Date(c.inicio+"T12:00:00");
     const anos=nowD.getFullYear()-ini.getFullYear();if(anos<=0)return;
     const aniYear=new Date(nowD.getFullYear(),ini.getMonth(),ini.getDate());
@@ -1726,7 +1745,7 @@ function renderPainel(){
 
   document.getElementById("painel-metrics").innerHTML=
     `<div class="metric"><div class="ml">Posts semana</div><div class="mv">${wP.length}</div></div>`+
-    `<div class="metric"><div class="ml">Clientes ativos</div><div class="mv">${DB.clientes.filter(c=>c.status==="ativo").length}</div></div>`+
+    `<div class="metric"><div class="ml">Clientes ativos</div><div class="mv">${DB.clientes.filter(clienteAtivo).length}</div></div>`+
     `<div class="metric"><div class="ml">Projetos ativos</div><div class="mv">${DB.projetos.filter(p=>p.status==="andamento").length}</div></div>`+
     `<div class="metric"><div class="ml">No Instagram</div><div class="mv">${DB.posts.filter(p=>p.etapa===4&&p.data>=wd[0]&&p.data<=wd[6]).length}</div></div>`;
 
@@ -1735,14 +1754,15 @@ function renderPainel(){
   ).join("");
 
   const pcc=document.getElementById("painel-post-counter");pcc.innerHTML="";
-  DB.clientes.filter(c=>c.status==="ativo").forEach(c=>{
+  DB.clientes.filter(clienteAtivo).forEach(c=>{
     const cp=wP.filter(p=>p.cliente===c.nome);
-    const tot=cp.length,r=cp.filter(p=>p.tipo==="Reels").length,u=cp.filter(p=>p.tipo==="Post único").length,ca=cp.filter(p=>p.tipo==="Carrossel").length,ig=cp.filter(p=>p.etapa===4).length;
+    const tot=cp.length,ig=cp.filter(p=>p.etapa===4).length;
+    const linhas=TIPOS_POST.map(t=>`<div class="pcc-row"><span>${t}</span><b>${cp.filter(p=>p.tipo===t).length}</b></div>`).join("");
     const card=el("div","pcc");
-    card.innerHTML=`<div class="pcc-name">${c.nome}</div><div class="pcc-row"><span>Reels</span><b>${r}</b></div><div class="pcc-row"><span>Post único</span><b>${u}</b></div><div class="pcc-row"><span>Carrossel</span><b>${ca}</b></div><div class="pcc-row" style="border-top:1px solid #f0f0eb;padding-top:4px;margin-top:4px"><span>No Insta</span><b>${ig}</b></div><div class="pcc-total ${ig===tot&&tot>0?"c-ok":tot>0?"c-warn":"c-bad"}">${tot} post${tot!==1?"s":""}</div>`;
+    card.innerHTML=`<div class="pcc-name">${c.nome}</div>${linhas}<div class="pcc-row" style="border-top:1px solid #f0f0eb;padding-top:4px;margin-top:4px"><span>No Insta</span><b>${ig}</b></div><div class="pcc-total ${ig===tot&&tot>0?"c-ok":tot>0?"c-warn":"c-bad"}">${tot} post${tot!==1?"s":""}</div>`;
     pcc.appendChild(card);
   });
-  if(!DB.clientes.filter(c=>c.status==="ativo").length)pcc.innerHTML='<div class="empty">Nenhum cliente ativo</div>';
+  if(!DB.clientes.filter(clienteAtivo).length)pcc.innerHTML='<div class="empty">Nenhum cliente ativo</div>';
 }
 
 // ── AGENDA ────────────────────────────────────────────────
@@ -1763,7 +1783,7 @@ function renderAgenda(){
     else dp.forEach(p=>{
       const row=el("div","dpr");
       const nm=el("span","",p.cliente);nm.style.cssText="font-weight:700;flex:1";row.appendChild(nm);
-      row.appendChild(badge(p.tipo==="Reels"?"badge br":p.tipo==="Post único"?"badge bu":"badge bc",p.tipo));
+      row.appendChild(badge(clsTipo(p.tipo),p.tipo));
       const et=el("span","",ETAPAS[p.etapa]);et.style.cssText=`font-size:10px;background:${ETAPA_BG[p.etapa]};color:${ETAPA_TX[p.etapa]};padding:2px 8px;border-radius:99px;white-space:nowrap`;
       row.appendChild(et);
       const prod=el("span","",p.produtor);prod.style.cssText="font-size:11px;color:#888";row.appendChild(prod);
@@ -1815,7 +1835,7 @@ function renderKanban(){
       card.addEventListener("dragend",()=>{card.classList.remove("dragging");document.querySelectorAll(".kcol").forEach(c=>c.classList.remove("drag-over"));dragId=null;});
       if(i===4){const cb=el("input");cb.type="checkbox";cb.className="kcard-check";cb.checked=ST.kSel.has(p.id);cb.onclick=e=>{e.stopPropagation();if(cb.checked)ST.kSel.add(p.id);else ST.kSel.delete(p.id);card.classList.toggle("selected",cb.checked);};card.appendChild(cb);}
       card.appendChild(el("div","kcard-client",p.cliente+(i===4?" ✓":"")));
-      card.appendChild(badge(p.tipo==="Reels"?"badge br":p.tipo==="Post único"?"badge bu":"badge bc",p.tipo));
+      card.appendChild(badge(clsTipo(p.tipo),p.tipo));
       card.appendChild(el("div","kcard-meta",fmtFull(p.data)+" · "+p.produtor+(p.obs?" · "+p.obs:"")));
       const acts=el("div","kcard-acts");
       acts.appendChild(btnEdit(()=>openPostModal(p.id)));
