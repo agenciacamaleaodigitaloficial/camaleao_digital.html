@@ -657,7 +657,7 @@ let ST={
   sortC:{col:"nome",dir:1},
   kSel:new Set(),
   _pagtoCtx:null,
-  pmesPid:null,pmesMS:null,
+  pmesPid:null,pmesMS:null,projAlertsOpen:false,
 };
 
 // ── UTILS ──────────────────────────────────────────────────
@@ -1394,6 +1394,38 @@ function renderProjetoPagtoModal(pid){
 ["mpp-close","mpp-cancel"].forEach(id=>document.getElementById(id).onclick=()=>closeM("modal-pagto-proj"));
 
 // ── PAGAMENTOS MENSAIS (PROJETO RECORRENTE) ────────────────
+// Fecha de uma vez todos os meses já vencidos: lança o que falta de entrada
+// e o que falta de saída, com data no dia de vencimento de cada mês.
+async function quitarMesesAnteriores(pid){
+  const p=DB.projetos.find(x=>x.id===pid);if(!p)return;
+  const alvo=projCompetencias(p).filter(ms=>ms<curMS());
+  if(!alvo.length){alert("Não há meses anteriores para quitar.");return;}
+  let rec=0,pag=0;
+  alvo.forEach(ms=>{
+    rec+=Math.max(0,projMesValor(p,ms)-projMesRecebido(p,ms));
+    (p.colabs||[]).forEach(c=>{pag+=Math.max(0,projMesColabValor(p,c,ms)-projMesColabPago(p,c,ms));});
+  });
+  if(rec<=0&&pag<=0){alert("Os meses anteriores já estão quitados.");return;}
+  if(!confirm(`Quitar ${alvo.length} ${alvo.length===1?"mês":"meses"} de ${p.cliente} (${msLabelFull(alvo[0])} até ${msLabelFull(alvo[alvo.length-1])})?\n\nEntrada a lançar: ${fmtR(rec)}\nSaída a lançar: ${fmtR(pag)}\n\nUse isto para colocar o histórico em dia. Depois dá para apagar lançamento por lançamento.`))return;
+  const dia=String(projDiaVenc(p)).padStart(2,"0");
+  alvo.forEach(ms=>{
+    const data=ms+"-"+dia;
+    const faltaRec=projMesValor(p,ms)-projMesRecebido(p,ms);
+    if(faltaRec>0){const r=ensurePM(p.id,ms);r.entradas.push({valor:faltaRec,data,obs:"quitação retroativa"});}
+    (p.colabs||[]).forEach(c=>{
+      const f=projMesColabValor(p,c,ms)-projMesColabPago(p,c,ms);
+      if(f<=0)return;
+      const r=ensurePM(p.id,ms);
+      if(!r.colabs[c.id])r.colabs[c.id]={pagtos:[]};
+      if(!r.colabs[c.id].pagtos)r.colabs[c.id].pagtos=[];
+      r.colabs[c.id].pagtos.push({valor:f,data,obs:"quitação retroativa"});
+    });
+  });
+  await saveDB();renderProjetos();renderPainel();renderFin();
+  if(document.getElementById("modal-proj-mes").classList.contains("open"))renderProjMesModal();
+}
+window.quitarMesesAnteriores=quitarMesesAnteriores;
+
 function openProjMesModal(pid,ms){
   const p=DB.projetos.find(x=>x.id===pid);if(!p)return;
   const comps=projCompetencias(p);
@@ -1420,6 +1452,13 @@ function renderProjMesModal(){
     b.onclick=()=>{ST.pmesMS=c;renderProjMesModal();};
     tabs.appendChild(b);
   });
+  const anteriores=comps.filter(c=>c<curMS()&&(projMesRecebido(p,c)<projMesValor(p,c)||(p.colabs||[]).some(x=>projMesColabPago(p,x,c)<projMesColabValor(p,x,c))));
+  if(anteriores.length){
+    const bq=el("button","btn btn-sm",`✓ Quitar ${anteriores.length} ${anteriores.length===1?"mês anterior":"meses anteriores"}`);
+    bq.style.marginLeft="4px";
+    bq.onclick=()=>quitarMesesAnteriores(p.id);
+    tabs.appendChild(bq);
+  }
 
   const prev=projMesValor(p,ms),rec=projMesRecebido(p,ms),falta=prev-rec;
   const pct=prev>0?Math.min(100,Math.round(rec/prev*100)):0;
@@ -1661,42 +1700,13 @@ function renderPainel(){
     else if(diff>=-1&&diff<0)al+=`<div class="al al-success">🎉 <b>${c.nome}</b> completou hoje ${anos} ano${anos>1?"s":""} com você!</div>`;
   });
 
-  // Payment alerts
-  DB.clientes.forEach(c=>{
-    const st=getClienteStatusMes(c,y,m);
-    if(st==="pausa")return;
-    if(st==="desconto"){payAl+=`<div class="al al-purple">🎁 <b>${c.nome}</b> — ${MESES[m]}: desconto de ${c.descontoPct}% aplicado</div>`;return;}
-    const pago=getClientePagoVal(c,y,m);
-    const valorEf=getClienteValorEfetivo(c,y,m);
-    const falta=valorEf-pago;
-    if(st==="vencido")payAl+=`<div class="al al-danger">⚠ <b>${c.nome}</b> — ${MESES[m]}: não pagou (${fmtR(valorEf)})</div>`;
-    else if(st==="parcial")payAl+=`<div class="al al-warning">💰 <b>${c.nome}</b> — pagou ${fmtR(pago)}, falta ${fmtR(falta)}</div>`;
-    else if(st==="pendente")payAl+=`<div class="al al-info">📅 <b>${c.nome}</b> — vence dia ${c.dia}/${m+1} (${fmtR(valorEf)})</div>`;
-  });
-  // Projeto alerts
-  DB.projetos.forEach(p=>{
-    if(p.status==="concluido"&&!isRec(p))return;
-    const hoje2=hoje;
-    if(isRec(p)){
-      if(!projTemCompetencia(p,ms))return;
-      const st=projMesStatus(p,ms),prev=projMesValor(p,ms),recM=projMesRecebido(p,ms);
-      if(st==="vencido")payAl+=`<div class="al al-danger">🔁 <b>${p.cliente}</b> — ${MESES[m]}: não pagou (${fmtR(prev)})</div>`;
-      else if(st==="parcial")payAl+=`<div class="al al-warning">🔁 <b>${p.cliente}</b> — ${MESES[m]}: recebeu ${fmtR(recM)}, falta ${fmtR(prev-recM)}</div>`;
-      else if(st==="pendente")payAl+=`<div class="al al-info">🔁 <b>${p.cliente}</b> — vence dia ${projDiaVenc(p)}/${m+1} (${fmtR(prev)})</div>`;
-      (p.colabs||[]).forEach(c=>{
-        const cf=projMesColabValor(p,c,ms)-projMesColabPago(p,c,ms);
-        if(cf>0)payAl+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${MESES[m]}: ${fmtR(cf)}</div>`;
-      });
-      return;
-    }
-    (p.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje2)payAl+=`<div class="al al-warning">💼 <b>${p.cliente}</b> — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});
-    (p.colabs||[]).forEach(c=>{(c.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje2)payAl+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});});
-    if(p.prazo&&p.prazo<hoje2)payAl+=`<div class="al al-warning">⏰ Projeto <b>${p.cliente}</b> (${p.tipo}) passou do prazo: ${fmt(p.prazo)}</div>`;
-  });
+  // Vencimentos NÃO ficam no painel. Cobrança de cliente mora em Financeiro,
+  // pendência de projeto mora em Projetos. Aqui só entra alerta operacional.
+  payAl="";
 
-  if(!al&&!payAl)al='<div class="al al-success">✓ Tudo em dia!</div>';
+  if(!al)al='<div class="al al-success">✓ Tudo em dia!</div>';
   document.getElementById("painel-alerts").innerHTML=al;
-  document.getElementById("painel-payment-alerts").innerHTML=payAl;
+  document.getElementById("painel-payment-alerts").innerHTML="";
 
   // Banner
   document.getElementById("painel-mes-label").textContent=MESES[m]+" "+y;
@@ -1880,9 +1890,9 @@ function renderFinC(){
     return(c[col]||"").toLowerCase();
   }
   const sorted=[...DB.clientes].sort((a,b)=>{const av=sv(a),bv=sv(b);if(typeof av==="number")return(av-bv)*ST.sortC.dir;return String(av).localeCompare(String(bv))*ST.sortC.dir;});
-  let alerts="";
-  DB.clientes.forEach(c=>{if(getClienteStatusMes(c,y,m)==="vencido")alerts+=`<div class="al al-danger">⚠ Vencido: ${c.nome}</div>`;});
-  document.getElementById("fin-alerts").innerHTML=alerts;
+  const vencidos=DB.clientes.filter(c=>getClienteStatusMes(c,y,m)==="vencido");
+  document.getElementById("fin-alerts").innerHTML=vencidos.length
+    ?`<div class="al al-danger">⚠ <b>${vencidos.length}</b> vencido${vencidos.length>1?"s":""} em ${MESES[m]}: ${vencidos.map(c=>c.nome).join(", ")}</div>`:"";
   const tb=document.getElementById("fin-ct");tb.innerHTML="";
   if(!sorted.length){tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum cliente</td></tr>';}
   else sorted.forEach(c=>{
@@ -2078,28 +2088,70 @@ function renderProjetos(){
     `<div class="metric"><div class="ml">Meses em aberto</div><div class="mv c-bad">${recorrentes.reduce((a,p)=>a+projMesesEmAberto(p).length,0)}</div></div>`;
 
   const hoje=today();
-  let palerts="";
+  // Pendências resumidas: uma linha por projeto, detalhe só quando clicar.
+  const box=document.getElementById("proj-alerts");box.innerHTML="";
+  const pend=[];
   DB.projetos.forEach(p=>{
     if(p.status==="concluido")return;
     if(isRec(p)){
-      projMesesEmAberto(p).forEach(ms=>{
-        const st=projMesStatus(p,ms);
+      const meses=projMesesEmAberto(p);
+      if(!meses.length)return;
+      let aReceber=0,aPagar=0;const linhas=[];
+      meses.forEach(ms=>{
         const prev=projMesValor(p,ms),rec=projMesRecebido(p,ms);
-        if(st==="vencido")palerts+=`<div class="al al-danger">🔁 <b>${p.cliente}</b> — ${msLabelFull(ms)}: cliente não pagou ${fmtR(prev)}</div>`;
-        else if(st==="parcial")palerts+=`<div class="al al-warning">🔁 <b>${p.cliente}</b> — ${msLabelFull(ms)}: recebeu ${fmtR(rec)}, falta ${fmtR(prev-rec)}</div>`;
-        else if(st==="pendente")palerts+=`<div class="al al-info">🔁 <b>${p.cliente}</b> — ${msLabelFull(ms)}: vence dia ${projDiaVenc(p)} (${fmtR(prev)})</div>`;
-        (p.colabs||[]).forEach(c=>{
-          const cf=projMesColabValor(p,c,ms)-projMesColabPago(p,c,ms);
-          if(cf>0)palerts+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${msLabelFull(ms)}: ${fmtR(cf)}</div>`;
-        });
+        const faltaRec=Math.max(0,prev-rec);
+        let faltaPag=0;
+        (p.colabs||[]).forEach(c=>{faltaPag+=Math.max(0,projMesColabValor(p,c,ms)-projMesColabPago(p,c,ms));});
+        aReceber+=faltaRec;aPagar+=faltaPag;
+        linhas.push({ms,faltaRec,faltaPag,st:projMesStatus(p,ms)});
       });
+      pend.push({p,tipo:"rec",meses,aReceber,aPagar,linhas});
       return;
     }
-    if(p.prazo&&p.prazo<hoje)palerts+=`<div class="al al-warning">⏰ <b>${p.cliente}</b> (${p.tipo}) — prazo venceu em ${fmt(p.prazo)}</div>`;
-    (p.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje)palerts+=`<div class="al al-warning">💼 <b>${p.cliente}</b> — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});
-    (p.colabs||[]).forEach(c=>{(c.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje)palerts+=`<div class="al al-danger">💸 Pagar <b>${c.nome}</b> ref. ${p.cliente} — ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}</div>`;});});
+    const linhas=[];let aReceber=0,aPagar=0;
+    if(p.prazo&&p.prazo<hoje)linhas.push({txt:`⏰ Prazo venceu em ${fmt(p.prazo)}`,cor:"#854f0b"});
+    (p.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje){aReceber+=Number(pd.valor||0);linhas.push({txt:`💼 ${pd.label}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}`,cor:"#854f0b"});}});
+    (p.colabs||[]).forEach(c=>{(c.pagdatas||[]).forEach(pd=>{if(!pd.pago&&pd.date&&pd.date<=hoje){aPagar+=Number(pd.valor||0);linhas.push({txt:`💸 Pagar ${c.nome}: ${fmtR(pd.valor)} venceu em ${fmt(pd.date)}`,cor:"#a32d2d"});}});});
+    if(linhas.length)pend.push({p,tipo:"avulso",aReceber,aPagar,linhas});
   });
-  document.getElementById("proj-alerts").innerHTML=palerts;
+
+  if(pend.length){
+    const totRec=pend.reduce((a,x)=>a+x.aReceber,0),totPag=pend.reduce((a,x)=>a+x.aPagar,0);
+    const head=el("div");head.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;background:#faeeda;border:1px solid #fac775;border-radius:8px;padding:.7rem 1rem;margin-bottom:.5rem;cursor:pointer";
+    head.innerHTML=`<span style="font-size:13px;color:#854f0b"><b>${pend.length}</b> ${pend.length===1?"projeto com pendência":"projetos com pendência"} · a receber <b>${fmtR(totRec)}</b> · a pagar <b>${fmtR(totPag)}</b></span><span style="font-size:12px;color:#854f0b">${ST.projAlertsOpen?"ocultar ▲":"ver detalhes ▼"}</span>`;
+    head.onclick=()=>{ST.projAlertsOpen=!ST.projAlertsOpen;renderProjetos();};
+    box.appendChild(head);
+
+    if(ST.projAlertsOpen)pend.forEach(x=>{
+      const row=el("div");
+      row.style.cssText="border:1px solid #e5e5e0;border-radius:8px;padding:.6rem .9rem;margin-bottom:.4rem;background:#fff";
+      const top=el("div");top.style.cssText="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px";
+      const resumo=x.tipo==="rec"
+        ? `<b>${x.p.cliente}</b> <span style="color:#888">${x.p.tipo}</span> — ${x.meses.length} ${x.meses.length===1?"mês":"meses"} em aberto (${x.meses.map(msLabel).join(", ")})`
+        : `<b>${x.p.cliente}</b> <span style="color:#888">${x.p.tipo}</span> — ${x.linhas.length} ${x.linhas.length===1?"pendência":"pendências"}`;
+      const vals=`${x.aReceber>0?`<span style="color:#3b6d11">receber ${fmtR(x.aReceber)}</span>`:""}${x.aReceber>0&&x.aPagar>0?" · ":""}${x.aPagar>0?`<span style="color:#a32d2d">pagar ${fmtR(x.aPagar)}</span>`:""}`;
+      top.innerHTML=`<span>${resumo}</span><span style="font-size:12px">${vals}</span>`;
+      row.appendChild(top);
+      const det=el("div");det.style.cssText="margin-top:.4rem;font-size:12px;color:#666";
+      if(x.tipo==="rec"){
+        det.innerHTML=x.linhas.map(l=>`<div>${l.st==="vencido"?"🔴":l.st==="parcial"?"🔵":"🟡"} ${msLabelFull(l.ms)}${l.faltaRec>0?` — receber ${fmtR(l.faltaRec)}`:""}${l.faltaPag>0?` — pagar ${fmtR(l.faltaPag)}`:""}</div>`).join("");
+      } else {
+        det.innerHTML=x.linhas.map(l=>`<div style="color:${l.cor}">${l.txt}</div>`).join("");
+      }
+      row.appendChild(det);
+      const acts=el("div");acts.style.cssText="margin-top:.5rem;display:flex;gap:6px;flex-wrap:wrap";
+      const b1=el("button","btn btn-sm btn-primary","$ Abrir pagamentos");
+      b1.onclick=()=>{x.tipo==="rec"?openProjMesModal(x.p.id):openProjetoPagtoModal(x.p.id);};
+      acts.appendChild(b1);
+      if(x.tipo==="rec"&&x.meses.filter(ms=>ms<curMS()).length){
+        const b2=el("button","btn btn-sm","✓ Quitar meses anteriores");
+        b2.onclick=()=>quitarMesesAnteriores(x.p.id);
+        acts.appendChild(b2);
+      }
+      row.appendChild(acts);
+      box.appendChild(row);
+    });
+  }
 
   let lista=[...DB.projetos];
   if(ST.projFilter==="ativos")lista=lista.filter(p=>p.status==="andamento"||p.status==="aguardando"||p.status==="pausa");
